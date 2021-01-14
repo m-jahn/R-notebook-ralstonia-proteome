@@ -37,3 +37,8 @@ vignettes/*.pdf
 
 # R Environment Variables
 .Renviron
+
+# archived or bulk data
+archived/*
+data/mapped/*
+data/pool/*.txt
