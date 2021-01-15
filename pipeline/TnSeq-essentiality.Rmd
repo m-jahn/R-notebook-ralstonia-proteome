@@ -76,6 +76,10 @@ df_pool %>% group_by(version) %>%
     N_bc_minus_strand = sum(strand == "-"),
     N_bc_per_kbp = length(barcode)/7417
   ) %>% t
+
+# Remove spurious barcodes detected by only one read
+df_pool <- df_pool %>% #group_by(scaffold, pos) %>%
+  filter(nTot > 1) # & length(pos) <= 5)) %>% ungroup
 ```
 
 
@@ -178,29 +182,6 @@ print(plot_Tns_on_genome)
 
 ### Mapping barcodes to genes
 
-The first step before we proceed with gene mapping is to deal with barcodes that map to two different locations. Since bacteria like *R. eutropha* have multiple copies of the same operon with almost identical DNA sequence, we rather like to keep ambiguous Tn insertions instead of removing them. It is not entirely clear how Transposon mutants that map to two different locations should be handled. The following code chunk is optional, and moves alternative mapping locations to the primary column.
-
-```{r, eval = FALSE, collapse = TRUE}
-df_pool <- df_pool %>%
-  
-  # filter out reads that map to >= 2 alternative positions
-  select(-nPastEnd) %>% filter(n2 < 2) %>%
-  
-  # combine values to one column for gather + spread
-  unite("pos1", n, scaffold, strand, pos, sep = ";") %>%
-  unite("pos2", n2, scaffold2, strand2, pos2, sep = ";") %>%
-  
-  # gather in one column
-  gather(key, value, pos1:pos2) %>%
-  
-  # spread again
-  separate(value, into = c("n", "scaffold", "strand", "pos"), sep = ";") %>%
-  filter(scaffold != "NA") %>%
-  mutate(n = as.numeric(n), pos = as.numeric(pos))
-```
-
-----------
-
 The basic Feba scripts produce a table of barcodes, their frequencies and genomic position information. What we really want to know is **how many transposons/barcodes are mapped to each gene, which position within a gene they have, how many barcodes do not map to a gene (intergenic, low importance), and how many genes were not hit by a transposon (probably essential)**. For this purpose we can use the function `foverlaps()` from package `data.table` to map transposon insertion sites to genes (or vice versa). The following part was inspired by previous work of Kyle Kimler ([github link](https://github.com/kylekimler/)).
 
 ```{r, message = FALSE}
@@ -236,7 +217,7 @@ We filter ambiguous barcodes out (barcode mapping to more than one position). We
 ```{r, message = FALSE}
 df_pool_annotated %>%
   group_by(desc) %>%
-  summarize(n_barcodes = length(barcode)) %>%
+  summarize(n_barcodes = sum(!is.na(barcode))) %>%
   mutate(desc = replace_na(desc, "intergenic")) %>%
   arrange(desc(n_barcodes))
 ```
@@ -248,7 +229,7 @@ df_pool_annotated %>%
 ```{r, message = FALSE}
 df_pool_annotated <- df_pool_annotated %>%
   group_by(old_locus_tag) %>%
-  mutate(tn_per_gene = length(barcode)) %>%
+  mutate(tn_per_gene = sum(!is.na(barcode))) %>%
   mutate(tn_per_gene = case_when(
     is.na(old_locus_tag) ~ 0,
      TRUE ~ as.numeric(tn_per_gene[1]))
@@ -343,6 +324,7 @@ with *tn_gene* and *length_gene* being the number of transposons inserted per ge
 df_pool_annotated <- df_pool_annotated %>%
   
   # Construct intervals spanning 10 kb
+  mutate(pos = if_else(is.na(pos), round(begin+(end-begin)/2), pos)) %>%
   group_by(scaffold) %>% arrange(pos) %>%
   mutate(length_interval = cut_interval(pos, length = 10000)) %>%
   group_by(scaffold, length_interval) %>%
@@ -359,7 +341,7 @@ df_pool_annotated <- df_pool_annotated %>%
   group_by(old_locus_tag) %>%
   mutate(insertion_index = median(na.rm = TRUE,
     (sum(central, na.rm = TRUE) / gene_length) / (tn_interval / 10000)
-  ) %>% replace_na(0) %>% replace(., . > 200, NA))
+  ) %>% replace_na(0) %>% replace(., . > 100, NA))
 
 # plot distribution of insertion index
 df_pool_annotated %>%
@@ -474,23 +456,32 @@ df_essential <- df_pool_annotated %>%
   group_by(locus_tag) %>%
   summarize(
     n_barcodes = sum(!is.na(barcode)),
-    n_barcodes_central = sum(central),
+    n_barcodes_central = sum(central, na.rm = TRUE),
     scaffold = scaffold[1],
     begin = begin[1],
     end = end[1],
     gene_strand = gene_strand[1],
     desc = desc[1],
-    insertion_index = insertion_index[1]
+    insertion_index = insertion_index[1],
+    tn_interval = mean(tn_interval, na.rm = TRUE)
   ) %>%
   
   # add verdict about essentiality to each locus
   mutate(
     essentiality = case_when(
-      insertion_index < essential$lower_t ~ "essential",
+      insertion_index <= essential$lower_t ~ "essential",
       insertion_index > essential$upper_t ~ "non-essential",
-      between(insertion_index, essential$lower_t, essential$upper_t) ~ "ambiguous"
+      insertion_index <= essential$upper_t & insertion_index > essential$lower_t ~ "ambiguous"
     )
   ) %>%
+  
+  # optional filtering of false-positive 'essential' genes that were probably not hit
+  # due to low tn_interval insertion frequency (below 30 per 10 kb (~ 3 tn per gene on average)
+  #mutate(
+  #  essentiality = case_when(
+  #    tn_interval <= 10 & essentiality == "essential" ~ "ambiguous",
+  #    TRUE ~ essentiality)
+  #) %>%
   
   # merge with genome annotation for R.e.
   left_join(read_csv("../data/ref/Ralstonia_H16_genome_annotation.csv")) 
@@ -510,7 +501,8 @@ df_essential %>% pull(essentiality) %>% table
 df_essential %>% filter(essentiality %in% c("essential", "ambiguous")) %>%
   group_by(COG_Process, essentiality) %>%
   summarize(n_genes = length(locus_tag)) %>%
-  arrange(desc(n_genes)) %>%
+  mutate(n_genes_tot = sum(n_genes)) %>% ungroup %>%
+  arrange(desc(n_genes_tot)) %>%
   mutate(COG_Process = replace_na(COG_Process, "Not annotated") %>%
     substr(1, 16) %>% paste0("..")) %>%
   
@@ -534,65 +526,116 @@ df_essential %>% filter(essentiality %in% c("essential", "ambiguous")) %>%
 We can also 'zoom in' on different genes of interest. Now it's gonna be really interesting.
 We can plot three levels of information for the CBB genes: the locus arrangement, i.e. gene map, the barcode positions and reads mapped to each position, and finally the verdict of a gene is essential or not (probably also insertion index).
 
-```{r, fig.height = 3, fig.width = 6}
-chromos = "NC_005241.1" # "NC_008314.1" #
-cbb_start <- 435000 # 1542000 # 
-cbb_end <- 450000 # 1568000 # 
-
-# plot CBB operon on chromosome 2
-plot_cbb_locus <- df_essential %>%
-  mutate(gene_name = eggNOG_name, essentiality = factor(essentiality)) %>%
-  filter(start > cbb_start, start < cbb_end, scaffold == chromos) %>%
+```{r, echo = FALSE}
+# generalized function to plot any selected region with 1) genes, 
+# 2) transposon insertions, 3) read counts 
+plot_tn_insertions <- function(chromosome, start_bp, end_bp) {
   
-  xyplot(end ~ start, .,
-    groups = essentiality, cex = 0.6, lwd = 1,
-    par.settings = custom.colorblind(),
-    scales = list(draw = FALSE),
-    xlim = c(cbb_start, cbb_end),
-    ylim = c(-3,2), xlab = "", ylab = "",
-    gene_strand = .[["strand"]],
-    gene_name = .[["gene_name"]],
-    panel = function(x, y, ...) {
-      panel.geneplot(x, y, arrows = TRUE, tip = 200, ...)
-    }
-  )
-
-# plot barcode insertions over same region
-plot_cbb_tns <- df_pool_annotated %>%
-  filter(begin > cbb_start, begin < cbb_end, scaffold == chromos) %>%
+  # filter input data
+  df_reads <- df_pool_annotated %>%
+    filter(begin > start_bp, begin < end_bp, scaffold == chromosome,
+      !is.na(barcode))
   
-  xyplot(rep_along(pos, 1) ~ pos, .,
-    cex = 3, pch = "|",
-    par.settings = custom.colorblind(),
-    scales = list(draw = FALSE),
-    xlim = c(cbb_start, cbb_end),
-    ylim = c(0, 2), xlab = "", ylab = "",
-    panel = function(x, y, ...) {
-      panel.xyplot(x, y, ...)
-    }
-  )
-
-# plot read density over same region
-plot_cbb_reads <- df_pool_annotated %>%
-  filter(begin > cbb_start, begin < cbb_end, scaffold == chromos) %>%
+  # plot genes
+  plot_genes <- df_essential %>%
+    mutate(gene_name = eggNOG_name, essentiality = factor(essentiality)) %>%
+    filter(start > start_bp, start < end_bp, scaffold == chromosome) %>%
+    xyplot(end ~ start, .,
+      groups = essentiality, cex = 0.6, lwd = 1,
+      par.settings = custom.colorblind(),
+      scales = list(draw = FALSE),
+      xlim = c(start_bp, end_bp),
+      ylim = c(-3, 1), xlab = "", ylab = "",
+      gene_strand = .[["strand"]],
+      gene_name = .[["gene_name"]],
+      panel = function(x, y, ...) {
+        panel.geneplot(x, y, arrows = TRUE, tip = 200, ...)
+      }
+    )
   
-  xyplot(nTot ~ pos, .,
-    par.settings = custom.colorblind(),
-    scales = list(draw = FALSE),
-    type = "l", lwd = 1.5,
-    xlim = c(cbb_start, cbb_end),
-    ylim = c(-100, 1000), xlab = "", ylab = "",
-    panel = function(x, y, ...) {
-      panel.barchart(x, y, box.ratio = 1, horizontal = FALSE, ...)
-    }
-  )
-
-print(plot_cbb_reads, position = c(0,0.65,1,1), more = TRUE)
-print(plot_cbb_tns, position = c(0,0.4,1,0.75), more = TRUE)
-print(plot_cbb_locus, position = c(0,0,1,0.5))
+  # plot barcode insertions over same region
+  plot_tns <- xyplot(rep_along(pos, 1) ~ pos, df_reads,
+      cex = 3, pch = "|",
+      par.settings = custom.colorblind(),
+      scales = list(draw = FALSE),
+      xlim = c(start_bp, end_bp),
+      ylim = c(0, 2), xlab = "", ylab = "",
+      panel = function(x, y, ...) {
+        panel.xyplot(x, y, ...)
+      }
+    )
+  
+  # plot read density over same region
+  plot_reads <- xyplot(nTot ~ pos, df_reads,
+      par.settings = custom.colorblind(),
+      scales = list(draw = FALSE),
+      type = "l", lwd = 1.5,
+      xlim = c(start_bp, end_bp),
+      ylim = c(-100, 1000), xlab = "", ylab = "",
+      panel = function(x, y, ...) {
+        panel.barchart(x, y, box.ratio = 1, horizontal = FALSE, ...)
+      }
+    )
+  
+  # return plots in list
+  list(plot_genes, plot_tns, plot_reads)
+}
 ```
 
+This plot shows TN insertions for the **CBB operon on the megaplasmid**.
 
+```{r, fig.height = 2.5, fig.width = 6}
+plots_cbb_mp <- plot_tn_insertions(chromosome = "NC_005241.1", 
+  start_bp = 435000, end_bp = 451000)
+
+print(plots_cbb_mp[[3]], position = c(0,0.6,1,1), more = TRUE)
+print(plots_cbb_mp[[2]], position = c(0,0.35,1,0.75), more = TRUE)
+print(plots_cbb_mp[[1]], position = c(0,0,1,0.5))
+```
+This plot shows the **CBB operon on chromosome 2**.
+
+```{r, fig.height = 2.5, fig.width = 6}
+plots_cbb_mp <- plot_tn_insertions(chromosome = "NC_008314.1", 
+  start_bp = 1547000, end_bp = 1565000)
+
+print(plots_cbb_mp[[3]], position = c(0,0.6,1,1), more = TRUE)
+print(plots_cbb_mp[[2]], position = c(0,0.35,1,0.75), more = TRUE)
+print(plots_cbb_mp[[1]], position = c(0,0,1,0.5))
+```
+
+Only one of the genes is labeled as essential, which makes sense, because at least Rubisco was reported before as not being essential. The TnSeq data was obtained with a library grown on LB complete medium, where Calvin cycle genes should not be essential.
+
+Finally we can also examine genes/operons that are labeled as essential, such as DNA replication proteins DnaA, DnaN, gyrB (gyrase).
+
+```{r, fig.height = 2.5, fig.width = 6}
+plots_cbb_mp <- plot_tn_insertions(chromosome = "NC_008313.1", 
+  start_bp = 0, end_bp = 30000)
+
+print(plots_cbb_mp[[3]], position = c(0,0.6,1,1), more = TRUE)
+print(plots_cbb_mp[[2]], position = c(0,0.35,1,0.75), more = TRUE)
+print(plots_cbb_mp[[1]], position = c(0,0,1,0.5))
+```
+Example for several subunits of *gat* operon, the Glutamyl/Aspartyl-tRNA(Gln/Asp) amidotransferase, responsibe for 'charging' glutaminyl-tRNAs (actually transferring an amino group to a glutamyl-tRNA). Essential.
+
+```{r, fig.height = 2.5, fig.width = 6}
+plots_cbb_mp <- plot_tn_insertions(chromosome = "NC_008313.1", 
+  start_bp = 110000, end_bp = 145000)
+
+print(plots_cbb_mp[[3]], position = c(0,0.6,1,1), more = TRUE)
+print(plots_cbb_mp[[2]], position = c(0,0.35,1,0.75), more = TRUE)
+print(plots_cbb_mp[[1]], position = c(0,0,1,0.5))
+```
+
+Example for ribosomal proteins on chromosome 1.
+
+```{r, fig.height = 2.5, fig.width = 6}
+plots_cbb_mp <- plot_tn_insertions(chromosome = "NC_008313.1", 
+  start_bp = 3724000, end_bp = 3758000)
+
+print(plots_cbb_mp[[3]], position = c(0,0.6,1,1), more = TRUE)
+print(plots_cbb_mp[[2]], position = c(0,0.35,1,0.75), more = TRUE)
+print(plots_cbb_mp[[1]], position = c(0,0,1,0.5))
+```
 
 ## Export result tables and figures
 
