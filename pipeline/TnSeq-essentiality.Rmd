@@ -55,11 +55,14 @@ df_pool_V1 <- read_tsv("../data/pool/CN_V1_pool.tsv")
 # import seq data from second version of library
 df_pool_V2 <- read_tsv("../data/pool/CN_V2_pool.tsv")
 
-# combine all in one df
-df_pool <- bind_rows(df_pool_V1, df_pool_V2, .id = "version")
+# combine all in one df, removing duplicate barcodes
+df_pool <- bind_rows(df_pool_V1, df_pool_V2, .id = "version") %>%
+  arrange(desc(version)) %>% filter(!duplicated(barcode)) %>%
+  arrange(version)
 
 # import reference genome
-df_ref <- read_tsv("../data/ref/GCF_000009285.1_ASM928v2_genomic_trimmed.tsv")
+df_ref <- read_tsv("../data/ref/GCF_000009285.1_ASM928v2_genomic_trimmed.tsv") %>%
+  filter(!duplicated(old_locus_tag))
 ```
 
 
@@ -194,11 +197,14 @@ dt_pool$end <- dt_pool$pos
 
 # map Tn insertion sites to genes
 setkey(dt_ref, scaffold, begin, end)
-df_pool_annotated <- foverlaps(dt_pool, dt_ref, by.x = c("scaffold", "begin", "end"), type = "within") %>%
+df_pool_annotated <- foverlaps(dt_pool, dt_ref, 
+    by.x = c("scaffold", "begin", "end"), type = "within") %>%
   as_tibble %>%
   select(barcode, rcbarcode, nTot, n, scaffold, i.strand, pos, begin,
     end, strand, desc, old_locus_tag, new_locus_tag, version) %>%
   rename(gene_strand = strand, strand = i.strand) %>%
+  # exclude alternative mappings in case of overlapping genes
+  filter(!duplicated(barcode)) %>%
   # include also unhit genes in main table
   full_join(df_ref)
 
@@ -755,7 +761,7 @@ df_essential %>% filter(!is.na(model_essential)) %>%
   write_csv("../data/output/essentiality_escher.csv")
 
 # export annotated pool file with V1 of library only
-df_pool_annotated %>% filter(version == "2") %>%
+df_pool_annotated %>% filter(!is.na(barcode), version == "2") %>%
   select(-tn_per_gene, -length_interval, -tn_interval,
     -insertion_index, -insertion_probability) %>%
   write_tsv("../data/output/annotated_pool.tsv")
