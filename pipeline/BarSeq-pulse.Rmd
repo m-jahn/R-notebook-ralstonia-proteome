@@ -1,0 +1,342 @@
+---
+title: "Pipeline for competition experiments with a barcoded transposon library"
+date: "`r format(Sys.time(), '%d %B, %Y')`"
+author: "Michael Jahn"
+output:
+  html_notebook: 
+    theme: spacelab
+    toc: yes
+---
+
+## Description
+
+This R notebook is a bioinformatics pipeline to analyze fitness data obtained from a barcoded transposon library in *Ralstonia eutropha* a.k.a. *Cupriavidus necator*. For background and details regarding the method, see [Wetmore at al., mBio, 2015](https://mbio.asm.org/content/6/3/e00306-15) and [Price et al., Nature, 2018](http://www.nature.com/articles/s41586-018-0124-0)).
+
+
+## Libraries
+
+```{r, message = FALSE}
+# optionally install repos from github
+# devtools::install_github("m-jahn/lattice-tools")
+library(lattice)
+library(latticeExtra)
+library(latticetools)
+library(tidyverse)
+library(ggvenn)
+```
+
+
+## Overview of barcode/transposon read counts
+
+### Data import and processing
+
+Read in the main data table with reads per barcode and sample ('pool counts'), and the fitness table. Tables were obtained by processing sequencing data with a custom [BarSeq pipeline](https://github.com/m-jahn/rebar).
+
+```{r, message = FALSE}
+# import barseq counts data in wide format
+df_barseq <- read_tsv("../data/barseq/20201222_barseq_frc.poolcount")
+
+# import fitness data, the final output of the BarSeq pipeline
+df_fitness <- read_tsv("../data/barseq/20201222_barseq_frc.gene_fitness.tab") %>%
+  mutate(Time = Time %>% str_remove(" generations") %>% as.numeric) %>%
+  rename(locus_tag = locusId)
+
+# import genome annotation
+df_ref <- read_csv("../data/ref/Ralstonia_H16_genome_annotation.csv") %>%
+  filter(!duplicated(locus_tag))
+
+# define standard colors
+stdcol <- custom.colorblind()$superpose.line$col
+```
+
+### Summary statistics
+
+Convert pool counts table from wide to long format first.
+Generate an overview about the number of reads per barcode, barcodes per gene and so on. Around 8-10 M reads were mapped on average, per sample. The Continuous cultivation, 32 generation time point is an outlier.
+
+```{r, message = FALSE}
+df_barseq <- df_barseq %>% 
+  gather(key = "condition", value = "n_reads", matches("Continuous|Long|Short"))
+
+# Number of total mapped reads
+df_barseq %>% group_by(condition) %>%
+  summarize(n_million_reads = sum(n_reads)/10^6)
+```
+
+Distribution of **number of reads per barcode**. There are sufficient reads for quantification, on average log2(n) = 5 = 32 reads per barcode were used. This is better coverage then what was obtained with the TnSeq sequencing runs. 
+
+```{r, fig.width = 9, fig.height = 6}
+plot_reads_per_bc <- histogram(~ log2(n_reads) | condition,
+  df_barseq, as.table = TRUE, layout = c(8,5),
+  par.settings = custom.colorblind(),
+  between = list(x = 0.5, y = 0.5),
+  xlab = expression("log"[2]*" reads per barcode"),
+  scales = list(alternating = FALSE),
+  panel = function(x, ...) {
+    panel.grid(h = -1, v = -1, col = grey(0.9))
+    panel.histogram(x, border = "white", ...)
+  }
+)
+
+print(plot_reads_per_bc)
+```
+Similarly to the above, this is an overview about the **number of barcodes per gene**, as a histogram.
+This distribution is the same for all conditions and replicates. The second plot is the **number of reads per gene**, averaged as median over all conditions (excluding 0 time point where counts were averaged by BarSeq pipeline). The average reads per gene are log2(n) = 10, so n = 2^10 or around 1000 reads per gene.
+
+
+```{r, fig.width = 7, fig.height = 3.7, message = FALSE}
+plot_reads_per_bc <- histogram(~ Strains_per_gene,
+  df_fitness %>% select(locus_tag, Strains_per_gene) %>% distinct %>% filter(Strains_per_gene < 40), 
+  as.table = TRUE, breaks = 20,
+  par.settings = custom.colorblind(),
+  between = list(x = 0.5, y = 0.5), xlim=c(-2, 42),
+  xlab = expression("mutants per gene"),
+  scales = list(alternating = FALSE),
+  panel = function(x, ...) {
+    panel.grid(h = -1, v = -1, col = grey(0.9))
+    panel.histogram(x, border = "white", ...)
+  }
+)
+
+plot_reads_per_gene <- histogram(~ log2(reads_per_gene_median),
+  df_fitness %>% filter(Time != 0) %>% group_by(locus_tag) %>%
+    summarize(reads_per_gene_median = median(Counts)),
+  as.table = TRUE, breaks = 20,
+  par.settings = custom.colorblind(),
+  between = list(x = 0.5, y = 0.5),
+  xlab = expression("log"[2]*" reads per gene (med)"),
+  scales = list(alternating = FALSE),
+  panel = function(x, ...) {
+    panel.grid(h = -1, v = -1, col = grey(0.9))
+    panel.histogram(x, border = "white", ...)
+  }
+)
+
+print(plot_reads_per_bc, split = c(1,1,2,1), more = TRUE)
+print(plot_reads_per_gene, split = c(2,1,2,1))
+```
+
+One final technical parameter that is useful to assess the necessary sequencing depth is the number of genes that have been reliably quantified in all samples, meaning with a certain minimum number of reads. For this purpose, we exclude one empty sample `ShortPulse_32_gen` and the four `Continuous_32_gen` samples with insufficient read number.
+
+```{r, fig.with = 4, fig.height = 3, message = FALSE}
+df_fitness %>% filter(!((Condition == "continuous" & Time == 32) | 
+  (Condition == "long pulse" & Time == 32 & Replicate == 4))) %>%
+  group_by(locus_tag) %>%
+  summarize(geq_1_reads = sum(Counts >= 1), geq_10_reads = sum(Counts >= 10), 
+    geq_100_reads = sum(Counts >= 100)) %>% 
+  
+  xyplot(sort(geq_1_reads) + sort(geq_10_reads) + sort(geq_100_reads) ~ seq_along(locus_tag), .,
+    xlab = "gene", ylab = "samples with n or more reads",
+    par.settings = custom.colorblind(),
+    type = "l", lwd = 2,
+      panel = function(x, y, ...) {
+      panel.grid(h = -1, v = -1, col = grey(0.9))
+      panel.xyplot(x, y, ...)
+      panel.key(labels = c("n = 1", "n = 10", "n = 100"), corner = c(0.9,0.1))
+    }
+  )
+```
+
+## Gene fitness analysis
+
+### Depletion over time (generations)
+
+To track the depletion over time (several generations), it's good to keep the 0-time point samples in the same format instead of in a separate column. We move `n0` to `Counts` and fill `log2FC` and `Norm_fg` (normalized fitness per gene) columns with zeroes.
+
+TODO-List for improvements of `rebar` pipeline:
+- keep 0 time point counts, plus replicates
+- replace 0 counts with NA by default
+
+```{r}
+df_fitness <- df_fitness %>% filter(Time == 8) %>%
+  mutate(Counts = n0, .keep = "unused") %>%
+  mutate(log2FC = 0, Time = 0, Norm_fg = 0) %>%
+  bind_rows(select(df_fitness, -n0)) %>%
+  select(-ID) %>%
+  left_join(select(df_ref, locus_tag, gene_name, 
+    COG_Process, eggNOG_name))
+```
+
+Now we can plot log2 FC or normalized gene fitness over generations. For this type of overview it is best to summarize individual replicates (4x) to the mean or median, per time point and condition. We also add genome annotation to the summary table.
+
+```{r, messages = FALSE}
+df_fitness_summary <- df_fitness %>% group_by(locus_tag, scaffold, Time, Condition, Strains_per_gene) %>%
+  summarize(
+    Norm_fg_median = median(Norm_fg, na.rm = TRUE),
+    log2FC_median = median(log2FC, na.rm = TRUE),
+    tstat_median = median(t, na.rm = TRUE)
+  ) %>%
+  left_join(df_ref)
+```
+
+
+```{r, fig.width = 6.5, fig.height = 5}
+plot_hist_log2FC <- df_fitness_summary %>%
+  group_by(Condition, locus_tag) %>% filter(all(!is.infinite(log2FC_median))) %>%
+  ungroup %>% slice(1:5000) %>%
+  
+  xyplot(log2FC_median ~ Time | Condition, .,
+    groups = locus_tag, as.table = TRUE,
+    col = stdcol[1], alpha = 0.2, layout = c(3, 1),
+    xlab = "", ylab = expression("log"[2]*" FC"),
+    par.settings = custom.colorblind(), type = c("l"),
+    between = list(x = 0.5, y = 0.5),
+    scales = list(alternating = FALSE), lwd = 2,
+    panel = function(x, y, ...) {
+      panel.grid(h = -1, v = -1, col = grey(0.9))
+      panel.xyplot(x, y, ...)
+    }
+  )
+
+plot_hist_normfg <- df_fitness_summary %>%
+  ungroup %>% slice(1:5000) %>%
+  
+  xyplot(Norm_fg_median ~ Time | Condition, .,
+    groups = locus_tag, as.table = TRUE,
+    col = stdcol[2], alpha = 0.2, layout = c(3, 1),
+    xlab = "generations", ylab = "fitness",
+    par.settings = custom.colorblind(), type = c("l"),
+    between = list(x = 0.5, y = 0.5),
+    scales = list(alternating = FALSE), lwd = 2,
+    panel = function(x, y, ...) {
+      panel.grid(h = -1, v = -1, col = grey(0.9))
+      panel.xyplot(x, y, ...)
+    }
+  )
+
+print(plot_hist_log2FC, position = c(0,0.47,1,1), more = TRUE)
+print(plot_hist_normfg, position = c(0,0,1,0.55))
+```
+
+As sort of an internal control, compare the gene fitness obtained by a complex procedure to the log2 FC of read counts, which is a very simple measure of 'fitness'. The two variables correlate well for two out of the three conditions, but show a marked difference for "continuous". This can be related to the poorer Seq quality of the 32 generation sample.
+
+```{r, fig.height = 3, fig.width = 6.5}
+df_fitness_summary %>%
+  group_by(Condition, locus_tag) %>% 
+  filter(Time == 8, all(!is.infinite(log2FC_median))) %>%
+  ungroup %>% slice(1:5000) %>%
+  
+  xyplot(Norm_fg_median ~ log2FC_median | Condition, .,
+    as.table = TRUE, col = stdcol[5], pch = 19,
+    alpha = 0.5, cex = 0.6, aspect = 1,
+    layout = c(3, 1), xlim = c(-7,3), ylim = c(-5,5),
+    xlab = expression("log"[2]*" FC"), ylab = "fitness",
+    par.settings = custom.colorblind(),
+    between = list(x = 0.5, y = 0.5),
+    scales = list(alternating = FALSE),
+    panel = function(x, y, ...) {
+      panel.grid(h = -1, v = -1, col = grey(0.9))
+      panel.xyplot(x, y, ...)
+      panel.lmlineq(x, y, fontfamily = "FreeSans", r.squared = TRUE, ...)
+      panel.abline(a = 2, b = 1, col = grey(0.5), lty = 2, lwd = 1.5)
+    }
+  )
+```
+
+### Comparing gene fitness between conditions
+
+Similarly to Figure 2 in [Wetmore et al, mBIO, 2015](https://mbio.asm.org/content/6/3/e00306-15), we can investigate condition-dependent gene fitness by comparing conditions one-on-one.
+
+```{r, fig.width = 9, fig.height = 3.3, message = FALSE}
+df_fitness_comp <- df_fitness_summary %>% filter(Time == 8) %>%
+  group_by(locus_tag) %>% mutate(tstat_median = min(tstat_median)) %>%
+  select(locus_tag, Condition, Norm_fg_median, gene_name, COG_Process, tstat_median) %>%
+  pivot_wider(names_from = Condition, values_from = Norm_fg_median)
+
+# plot all conditions vs each other
+plot_fitness_comp <- lapply(
+  list(
+    c("short pulse", "continuous"),
+    c("long pulse", "continuous"),
+    c("short pulse", "long pulse")), function(var){
+  
+  xyplot(get(var[1]) ~ get(var[2]),
+    df_fitness_comp, groups = tstat_median < -3,#abs(get(var[1])-get(var[2])) > 2,
+    par.settings = custom.colorblind(), col = stdcol[c(5,1)],
+    pch = 19, alpha = 0.5, cex = 0.6, aspect = 1,
+    xlim = c(-7, 4), ylim = c(-7, 4),
+    xlab = var[2], ylab = var[1],
+    panel = function(x, y, ...) {
+      panel.grid(h = -1, v = -1, col = grey(0.9))
+      panel.abline(v = 0, h = 0, col = grey(0.5), lty = 2, lwd = 1.5)
+      panel.abline(a = 0, b = 1, col = grey(0.5), lty = 2, lwd = 1.5)
+      panel.abline(a = 2, b = 1, col = grey(0.5), lty = 2, lwd = 1.5)
+      panel.abline(a = -2, b = 1, col = grey(0.5), lty = 2, lwd = 1.5)
+      panel.xyplot(x, y, ...)
+      panel.key(...)
+    }
+  )
+})
+
+print(plot_fitness_comp[[1]], position = c(0,0,0.33,1), more = TRUE)
+print(plot_fitness_comp[[2]], position = c(0.33,0,0.66,1), more = TRUE)
+print(plot_fitness_comp[[3]], position = c(0.66,0,1,1))
+```
+
+### Differential fitness of selected genes
+
+Most genes correlate in fitness value between conditions. That means, only few genes have a **condition-specific fitness effect**, i.e. increase or decrease fitness of the respective strain in a condition. This section investigates specific genes and their functions that show such differential fitness between conditions.
+
+We can define a differential fitness of 2 between conditions as a threshod value. This is arbitrary and simply encloses roughly 95% of the gene population. A more refined way would be to use a (data-dependent) statistical metric for setting a significance boundary (like confidence interval).
+
+```{r}
+# obtain list of differential fitness per gene
+df_diff_fitness <- df_fitness_comp %>% mutate(
+  SP_CO = abs(`short pulse`-continuous) > 2,
+  LP_CO = abs(`long pulse`-continuous) > 2,
+  SP_LP = abs(`short pulse`-`long pulse`) > 2
+) %>% filter(any(SP_CO, LP_CO, SP_LP)) %>% ungroup
+
+df_diff_fitness %>%
+  summarize(
+    sum(SP_CO, na.rm = TRUE), 
+    sum(LP_CO, na.rm = TRUE), 
+    sum(SP_LP, na.rm = TRUE))
+```
+
+Now we can identify overlaps between these gene sets and visualize them through infamous Venn diagrams.
+
+```{r, fig.width = 5, fig.height = 5}
+plot_venn <- df_diff_fitness %>% select(SP_CO, LP_CO, SP_LP) %>%
+  ggplot() +
+  geom_venn(aes(A = SP_CO, B = LP_CO, C = SP_LP), fill_color = stdcol) +
+  coord_fixed() + 
+  theme_void()
+
+print(plot_venn)
+```
+
+### Depletion of selected genes over time
+
+Based on the previous step, a set of genes of interest and their depletion/enrichment plotted over time (plotted is normalized gene fitness). The most interesting sets are A) genes with differential fitness for SP vs CO AND LP vs CO. And B) genes with diff. fitness for LP vs SP. For the first set, we are specifically looking for genes that have **lower fitness score** in the pulsed conditions, i.e. genes involved in adaptation to changing conditions.
+
+```{r, fig.width = 8, fig.height = 6, message = FALSE}
+df_fitness %>% inner_join(
+    filter(df_diff_fitness, SP_CO & LP_CO & !SP_LP) %>% select(locus_tag)
+  ) %>%
+
+  xyplot(Norm_fg ~ factor(Time) | str_extract(gene_name, "[a-zA-Z0-9_]+"), .,
+    groups = Condition, as.table = TRUE,
+    par.settings = custom.colorblind(), type = c("p", "l"),
+    xlab = "generations", ylab = "fitness",
+    pch = 19, between = list(x = 0.5, y = 0.5),
+    scales = list(alternating = FALSE), lwd = 2,
+    panel = function(x, y, ...) {
+      panel.grid(h = -1, v = -1, col = grey(0.9))
+      panel.errbars(x, y, ewidth = 0, ...)
+      panel.key(...)
+    }
+  )
+```
+
+### Functional enrichment
+
+And finally investigate their function, or at least enrichment in certain functional groups.
+
+```{r}
+df_test <- filter(df_diff_fitness, SP_CO & LP_CO & !SP_LP) %>% select(-COG_Process) %>%
+  inner_join(df_ref) %>%
+  
+  
+```
+
