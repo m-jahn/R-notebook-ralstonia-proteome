@@ -1,5 +1,5 @@
 ---
-title: "Pipeline for competition experiments with a barcoded transposon library"
+title: "Analysis of competition experiments with a barcoded transposon library"
 date: "`r format(Sys.time(), '%d %B, %Y')`"
 author: "Michael Jahn"
 output:
@@ -251,7 +251,7 @@ plot_fitness_comp <- lapply(
     c("short pulse", "long pulse")), function(var){
   
   xyplot(get(var[1]) ~ get(var[2]),
-    df_fitness_comp, groups = tstat_median < -3,#abs(get(var[1])-get(var[2])) > 2,
+    df_fitness_comp, groups = abs(get(var[1])-get(var[2])) > 2, #tstat_median < -3
     par.settings = custom.colorblind(), col = stdcol[c(5,1)],
     pch = 19, alpha = 0.5, cex = 0.6, aspect = 1,
     xlim = c(-7, 4), ylim = c(-7, 4),
@@ -331,12 +331,97 @@ df_fitness %>% inner_join(
 
 ### Functional enrichment
 
-And finally investigate their function, or at least enrichment in certain functional groups.
+And finally investigate their function, or at least enrichment in certain functional groups. We can plot fitness scores per functional group to see if there's a trend.
 
-```{r}
-df_test <- filter(df_diff_fitness, SP_CO & LP_CO & !SP_LP) %>% select(-COG_Process) %>%
-  inner_join(df_ref) %>%
-  
-  
+```{r, message = FALSE}
+# reformat fitness data a bit for sole purpose of plotting
+df_heatmaps <- df_diff_fitness %>% 
+  select(-COG_Process) %>%
+  mutate(delta_LP_CO = continuous-`long pulse`, delta_SP_CO = continuous-`short pulse`, 
+    delta_SP_LP = `long pulse`-`short pulse`) %>%
+  pivot_longer(names_to = "comparison", values_to = "delta_fitness", delta_LP_CO:delta_SP_LP) %>%
+  left_join(df_ref) %>%
+  mutate(
+    gene_name = gene_name %>% str_extract("[a-zA-Z0-9_]+"),
+    comparison = comparison %>% gsub("delta_", "", .)
+  )
+
+# differential fitness for genes with enrichment 
+df_heatmaps %>% filter(SP_CO & LP_CO & !SP_LP) %>%
+  filter(COG_Process == "Transcription")
 ```
 
+The largest group is transcription which is interesting. It seems that some **transcription factors** within this set are important for adaptation to changing conditions, cell cycling, and so on.
+
+**6 TFs have high fitness in pulse conditions**
+
+- H16_B2087: Response regulator, NarL-family, DNA binding (TF, nitrite/nitrate response regulator)
+- H16_A3144, phcA: Transcriptional regulator, LysR-family, involved in regulation of the quorum sensing circuit and virulence factors in Ralst. solanacearum
+- H16_A1177: Transcriptional regulator, GlvR-family, involved in regulation of central carbon metabolism genes EDA, EDD, glucokinase, and nagE (N-acetylglucosamine biosynthesis)
+- H16_A0502: DNA-binding protein Fis (Factor for inversion stimulation), small abundant regulator in E.coli, involved in many processes like transcriptional activation of rRNA and tRNA operons, and oriC-directed DNA replication.
+- H16_A0387, rpoN: RNA polymerase sigma-54 factor. the RNA-Pol regulating sigma factor for N starvation
+- H16_A0310: Transcriptional regulator, GntR-family. Regulates N-acetylglucosamine biosynthesis, e.g. via nagE. Interacts with lacI family TFs (?).
+
+**4 TFs have low fitness in pulse conditions**
+
+- H16_B2025: Cold shock protein, DNA binding (TF)
+- H16_B1970: Response regulator, NarL-family, DNA binding (TF, nitrite/nitrate response regulator)
+- H16_B1728, prtR: Transmembrane activator of PrtI, an RNA polymerase sigma subunit (ECF sigma factor, belongs to the sigma-70 factor family)
+- H16_B1673: Transcriptional regulator, TetR/AcrR-family, Repressor involved in the biosynthesis of the osmoprotectant glycine betaine. It represses transcription of the choline transporter BetT and the genes of BetAB involved in the synthesis of glycine betaine.
+
+### Alternative functional enrichment
+
+This is a test run to investigate if filtering genes by a simple fitness threshold instead of the differential fitness, dF, gives more comprehensive results. For each sample lower and upper fitness threshold are defined (or t-statistics) and all genes are plotted with fitness score on a heatmap.
+
+```{r, fig.width = 9, fig.height = 3.5}
+# generate colorpalette for heatmap
+heat_cols <- colorspace::diverging_hcl(n = 7, h = c(260, 0), c = 100, l = c(50, 90))
+
+# rearrange fitness data to wide format
+df_heatmap <- df_fitness_summary %>% filter(Time == 8) %>%
+  group_by(locus_tag) %>% filter(any(abs(Norm_fg_median) >= 3)) %>%
+  ungroup %>% select(COG_Process, gene_name, Condition, Norm_fg_median) %>% 
+  pivot_wider(names_from = Condition, values_from = Norm_fg_median) %>%
+  select(COG_Process, gene_name, `long pulse`, `short pulse`, continuous) %>%
+  mutate(COG_Process = case_when(
+    grepl("Amino|Nucleotide|Coenz", COG_Process) ~ "amino acids, nucleotides, coenzymes",
+    grepl("Energy", COG_Process) ~ "energy metabolism",
+    grepl("Trans|Post", COG_Process) ~ "transcription, translation",
+    TRUE ~ "other"
+  )) %>%
+  column_to_rownames(var = "gene_name")
+
+# turn matrix into heat map, also for re-ordering
+mat_heatmap <- select(df_heatmap, -COG_Process) %>% as.matrix  
+reordered <- mat_heatmap %>% dist %>% hclust %>% as.dendrogram %>% 
+  order.dendrogram
+
+# plot heatmap
+plot_heatmap_3 <- levelplot(mat_heatmap[reordered, ] %>% replace(., . > 6, 6) %>% replace(., . < -6, -6),
+  par.settings = custom.colorblind(),
+  col.regions = colorRampPalette(heat_cols)(16),
+  at = seq(-6, 6, 1), aspect = "fill",
+  xlab = "", ylab = "", scales = list(x = list(tck = c(1, 0), cex = 0.6, rot = 90)),
+  panel = function(x, y, z, ...) {
+    panel.levelplot(x, y, z, ...)
+    panel.abline(h = c(1.5, 2.5), col = "white", lwd = 1.5)
+  }
+)
+
+# plot color coded COG groups
+plot_heatmap_4 <- xyplot(rep(1, length(continuous)) ~ seq_along(continuous), df_heatmap[reordered, ],
+  groups = COG_Process, par.settings = custom.colorblind(),
+  scales = list(draw = FALSE), xlab = "", ylab = "",
+  xlim = c(0.25, length(reordered)+0.25), col = stdcol[c(1,2,3,4)],
+  pch = 15, cex = 1.1, auto.key = list(columns = 4, cex = 0.7))
+
+print(plot_heatmap_4, position = c(0.1,0.76,0.92,1), more = TRUE)
+print(plot_heatmap_3, position = c(0,0,1,0.92))
+```
+
+```{r, include = FALSE}
+#svg("../figures/figure_fitness_heat.svg", width = 9, height = 3.5, )
+#print(plot_heatmap_4, position = c(0.1,0.76,0.92,1), more = TRUE)
+#print(plot_heatmap_3, position = c(0,0,1,0.92))
+#dev.off()
+```
