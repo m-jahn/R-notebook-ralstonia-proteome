@@ -331,29 +331,21 @@ df_fitness %>% inner_join(
 
 ### Functional enrichment
 
-And finally investigate their function, or at least enrichment in certain functional groups. We can plot fitness scores per functional group to see if there's a trend.
+And finally investigate their function, or at least enrichment in certain functional groups. What are the dominant COG groups per for the genes of interest?
 
 ```{r, message = FALSE}
-# reformat fitness data a bit for sole purpose of plotting
-df_heatmaps <- df_diff_fitness %>% 
-  select(-COG_Process) %>%
-  mutate(delta_LP_CO = continuous-`long pulse`, delta_SP_CO = continuous-`short pulse`, 
-    delta_SP_LP = `long pulse`-`short pulse`) %>%
-  pivot_longer(names_to = "comparison", values_to = "delta_fitness", delta_LP_CO:delta_SP_LP) %>%
-  left_join(df_ref) %>%
-  mutate(
-    gene_name = gene_name %>% str_extract("[a-zA-Z0-9_]+"),
-    comparison = comparison %>% gsub("delta_", "", .)
-  )
-
-# differential fitness for genes with enrichment 
-df_heatmaps %>% filter(SP_CO & LP_CO & !SP_LP) %>%
-  filter(COG_Process == "Transcription")
+df_diff_fitness %>% count(COG_Process, sort = TRUE)
 ```
 
-The largest group is transcription which is interesting. It seems that some **transcription factors** within this set are important for adaptation to changing conditions, cell cycling, and so on.
+The largest group is transcription (apart from `Function unknown`) which is interesting. It seems that some **transcription factors** within this set are important for adaptation to changing conditions, cell cycling, and so on. We can look at the transcription factors within the set of 38 genes that are different between *both* pulsed conditions, and the continuous condition.
 
-**6 TFs have high fitness in pulse conditions**
+```{r}
+df_diff_fitness %>%
+  filter(SP_CO & LP_CO & !SP_LP, COG_Process == "Transcription") %>%
+  arrange(continuous)
+```
+
+**6 TFs have lower fitness in pulse conditions**
 
 - H16_B2087: Response regulator, NarL-family, DNA binding (TF, nitrite/nitrate response regulator)
 - H16_A3144, phcA: Transcriptional regulator, LysR-family, involved in regulation of the quorum sensing circuit and virulence factors in Ralst. solanacearum
@@ -362,16 +354,16 @@ The largest group is transcription which is interesting. It seems that some **tr
 - H16_A0387, rpoN: RNA polymerase sigma-54 factor. the RNA-Pol regulating sigma factor for N starvation
 - H16_A0310: Transcriptional regulator, GntR-family. Regulates N-acetylglucosamine biosynthesis, e.g. via nagE. Interacts with lacI family TFs (?).
 
-**4 TFs have low fitness in pulse conditions**
+**4 TFs have higher fitness in pulse conditions**
 
 - H16_B2025: Cold shock protein, DNA binding (TF)
 - H16_B1970: Response regulator, NarL-family, DNA binding (TF, nitrite/nitrate response regulator)
 - H16_B1728, prtR: Transmembrane activator of PrtI, an RNA polymerase sigma subunit (ECF sigma factor, belongs to the sigma-70 factor family)
 - H16_B1673: Transcriptional regulator, TetR/AcrR-family, Repressor involved in the biosynthesis of the osmoprotectant glycine betaine. It represses transcription of the choline transporter BetT and the genes of BetAB involved in the synthesis of glycine betaine.
 
-### Alternative functional enrichment
+### Heatmap of genes with strong fitness effect
 
-This is a test run to investigate if filtering genes by a simple fitness threshold instead of the differential fitness, dF, gives more comprehensive results. For each sample lower and upper fitness threshold are defined (or t-statistics) and all genes are plotted with fitness score on a heatmap.
+To include *all genes*, we can also filter genes by a simple fitness threshold instead of the *differential* fitness, dF, gives more comprehensive results. For each sample, lower and upper fitness threshold are defined (or t-statistics) and all genes are plotted with fitness score on a heatmap.
 
 ```{r, fig.width = 9, fig.height = 3.5}
 # generate colorpalette for heatmap
@@ -424,4 +416,55 @@ print(plot_heatmap_3, position = c(0,0,1,0.92))
 #print(plot_heatmap_4, position = c(0.1,0.76,0.92,1), more = TRUE)
 #print(plot_heatmap_3, position = c(0,0,1,0.92))
 #dev.off()
+```
+
+### Fitness per functional group
+
+So far, the **bottom-up approach** was used to select interesting groups of genes. A threshold in fitness score (difference) was applied and the genes tested for enrichment of functional groups.
+Here, we will apply the **top-down approach**, first select known groups of interest, and then compare average fitness score for the three conditions. We start with one of the most itneresting features of *Ralstonia*, the *cbb* operon.
+
+```{r, fig.width = 4, fig.height = 7.5}
+plot_cbb_fitness_bee <- df_fitness_summary %>%
+  filter(Time == 8,
+    (scaffold == "NC_005241.1" & start > 437500 & start < 451000) |
+    (scaffold == "NC_008314.1" & start > 1547000 & start < 1564450)
+  ) %>%
+  
+  xyplot(Norm_fg_median ~ factor(Condition, unique(Condition)[c(1,3,2)]), .,
+    groups = seq_type,
+    xlab = "", ylab = "fitness", ylim = c(-1.25, 1.25),
+    par.settings = custom.colorblind(), as.table = TRUE,
+    between = list(x = 0.5, y = 0.5), pch = 19,
+    scales = list(alternating = FALSE),
+    panel = function(x, y, ...) {
+      panel.grid(h = -1, v = -1, col = grey(0.9))
+      panel.beeswarm(x, y, bin_y = TRUE, ...)
+      panel.key(corner = c(0.95, 0.05), cex = 0.6, points = FALSE, ...)
+      panel.pvalue(x, y, pvalue = TRUE, fixed_pos = 1.6, cex = 0.6, col = 1, ...)
+    }
+  )
+
+plot_cbb_fitness_time <- df_fitness %>% filter(str_detect(gene_name, "cbb.|cfx.")) %>%
+
+  xyplot(Norm_fg ~ factor(Time) | str_extract(gene_name, "[a-zA-Z0-9_]+"), .,
+    groups = Condition, as.table = TRUE,
+    par.settings = custom.colorblind(), type = c("p", "l"),
+    xlab = "generations", ylab = "fitness",
+    pch = 19, between = list(x = 0.5, y = 0.5), ylim = c(-5, 5),
+    scales = list(alternating = FALSE), lwd = 2,
+    panel = function(x, y, ...) {
+      panel.grid(h = -1, v = -1, col = grey(0.9))
+      panel.errbars(x, y, ewidth = 0, ...)
+      panel.key(cex = 0.6, points = FALSE, ...)
+    }
+  )
+
+print(plot_cbb_fitness_bee, position = c(0,0.65,1,1), more = TRUE)
+print(plot_cbb_fitness_time, position = c(0,0,1,0.7))
+```
+```{r, include = FALSE}
+svg("../figures/figure_fitness_cbb.svg", width = 4, height = 7.5, )
+print(plot_cbb_fitness_bee, position = c(0,0.65,1,1), more = TRUE)
+print(plot_cbb_fitness_time, position = c(0,0,1,0.7))
+dev.off()
 ```
