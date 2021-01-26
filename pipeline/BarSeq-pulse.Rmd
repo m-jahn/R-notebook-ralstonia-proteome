@@ -311,11 +311,9 @@ print(plot_venn)
 Based on the previous step, a set of genes of interest and their depletion/enrichment plotted over time (plotted is normalized gene fitness). The most interesting sets are A) genes with differential fitness for SP vs CO AND LP vs CO. And B) genes with diff. fitness for LP vs SP. For the first set, we are specifically looking for genes that have **lower fitness score** in the pulsed conditions, i.e. genes involved in adaptation to changing conditions.
 
 ```{r, fig.width = 8, fig.height = 6, message = FALSE}
-df_fitness %>% inner_join(
-    filter(df_diff_fitness, SP_CO & LP_CO & !SP_LP) %>% select(locus_tag)
-  ) %>%
-
-  xyplot(Norm_fg ~ factor(Time) | str_extract(gene_name, "[a-zA-Z0-9_]+"), .,
+# general plotting function for fitness as time series
+draw_fitness_ts  <- function(data) {
+  xyplot(Norm_fg ~ factor(Time) | str_extract(gene_name, "[a-zA-Z0-9_]+"), data,
     groups = Condition, as.table = TRUE,
     par.settings = custom.colorblind(), type = c("p", "l"),
     xlab = "generations", ylab = "fitness",
@@ -327,6 +325,13 @@ df_fitness %>% inner_join(
       panel.key(...)
     }
   )
+}
+
+
+df_fitness %>% inner_join(
+    filter(df_diff_fitness, SP_CO & LP_CO & !SP_LP) %>% select(locus_tag)
+  ) %>%
+  draw_fitness_ts
 ```
 
 ### Functional enrichment
@@ -421,50 +426,63 @@ print(plot_heatmap_3, position = c(0,0,1,0.92))
 ### Fitness per functional group
 
 So far, the **bottom-up approach** was used to select interesting groups of genes. A threshold in fitness score (difference) was applied and the genes tested for enrichment of functional groups.
-Here, we will apply the **top-down approach**, first select known groups of interest, and then compare average fitness score for the three conditions. We start with one of the most itneresting features of *Ralstonia*, the *cbb* operon.
+Here, we will apply the **top-down approach**, first select known groups of interest, and then compare average fitness score for the three conditions. We start with one of the most interesting features of *Ralstonia*, the *cbb* operon encoding enzymes for PPP and Calvin cycle (e.g. Rubisco). Then we look at other genes/groups of interest, like PHB synthesis, or oxidative phosphorylation.
 
-```{r, fig.width = 4, fig.height = 7.5}
-plot_cbb_fitness_bee <- df_fitness_summary %>%
-  filter(Time == 8,
-    (scaffold == "NC_005241.1" & start > 437500 & start < 451000) |
-    (scaffold == "NC_008314.1" & start > 1547000 & start < 1564450)
-  ) %>%
-  
-  xyplot(Norm_fg_median ~ factor(Condition, unique(Condition)[c(1,3,2)]), .,
+First we come up with a generalized function to compare all genes of a pathway as a beeswarm plot, broken down by condition.
+
+```{r}
+draw_beeswarm <- function(data) {
+  xyplot(Norm_fg_median ~ factor(Condition, unique(Condition)[c(1,3,2)]), data,
     groups = seq_type,
-    xlab = "", ylab = "fitness", ylim = c(-1.25, 1.25),
+    xlab = "", ylab = "fitness", ylim = c(-1.5, 1.5),
     par.settings = custom.colorblind(), as.table = TRUE,
     between = list(x = 0.5, y = 0.5), pch = 19,
     scales = list(alternating = FALSE),
     panel = function(x, y, ...) {
       panel.grid(h = -1, v = -1, col = grey(0.9))
-      panel.beeswarm(x, y, bin_y = TRUE, ...)
+      panel.beeswarm(x, y, bin_y = TRUE, breaks_y = seq(-1.5,1.5, length.out = 16), ...)
       panel.key(corner = c(0.95, 0.05), cex = 0.6, points = FALSE, ...)
       panel.pvalue(x, y, pvalue = TRUE, fixed_pos = 1.6, cex = 0.6, col = 1, ...)
     }
   )
-
-plot_cbb_fitness_time <- df_fitness %>% filter(str_detect(gene_name, "cbb.|cfx.")) %>%
-
-  xyplot(Norm_fg ~ factor(Time) | str_extract(gene_name, "[a-zA-Z0-9_]+"), .,
-    groups = Condition, as.table = TRUE,
-    par.settings = custom.colorblind(), type = c("p", "l"),
-    xlab = "generations", ylab = "fitness",
-    pch = 19, between = list(x = 0.5, y = 0.5), ylim = c(-5, 5),
-    scales = list(alternating = FALSE), lwd = 2,
-    panel = function(x, y, ...) {
-      panel.grid(h = -1, v = -1, col = grey(0.9))
-      panel.errbars(x, y, ewidth = 0, ...)
-      panel.key(cex = 0.6, points = FALSE, ...)
-    }
-  )
-
-print(plot_cbb_fitness_bee, position = c(0,0.65,1,1), more = TRUE)
-print(plot_cbb_fitness_time, position = c(0,0,1,0.7))
+}
 ```
+
+
+```{r, fig.width = 8, fig.height = 7.5, warning = FALSE}
+# beeswarm plots
+plot_cbb_fitness_bee <- df_fitness_summary %>%
+  filter(Time == 8,
+    (scaffold == "NC_005241.1" & start > 437500 & start < 451000) |
+    (scaffold == "NC_008314.1" & start > 1547000 & start < 1564450)
+  ) %>% draw_beeswarm
+  
+plot_phb_fitness_bee <- df_fitness_summary %>%
+  filter(Time == 8, str_detect(gene_name, "^pha[A-Z]")) %>%
+  draw_beeswarm
+
+# single time series per gene
+plot_cbb_fitness_time <- df_fitness %>% filter(str_detect(gene_name, "cbb.|cfx.")) %>% 
+  draw_fitness_ts
+
+plot_phb_fitness_time <- df_fitness %>% filter(str_detect(gene_name, "^pha[A-Z]")) %>%
+  draw_fitness_ts
+
+
+print(plot_cbb_fitness_bee, position = c(0,0.65,0.5,1), more = TRUE)
+print(plot_cbb_fitness_time, position = c(0,0,0.5,0.7), more = TRUE)
+print(plot_phb_fitness_bee, position = c(0.5,0.65,1,1), more = TRUE)
+print(plot_phb_fitness_time, position = c(0.5,0,1,0.7))
+```
+
+
 ```{r, include = FALSE}
-svg("../figures/figure_fitness_cbb.svg", width = 4, height = 7.5, )
-print(plot_cbb_fitness_bee, position = c(0,0.65,1,1), more = TRUE)
-print(plot_cbb_fitness_time, position = c(0,0,1,0.7))
+svg("../figures/figure_fitness_cbb.svg", width = 8, height = 7.5)
+print(plot_cbb_fitness_bee, position = c(0,0.65,0.5,1), more = TRUE)
+print(plot_cbb_fitness_time, position = c(0,0,0.5,0.7), more = TRUE)
+print(plot_phb_fitness_bee, position = c(0.5,0.65,1,1), more = TRUE)
+print(plot_phb_fitness_time, position = c(0.5,0,1,0.7))
 dev.off()
 ```
+
+
