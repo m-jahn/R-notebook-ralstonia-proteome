@@ -475,7 +475,6 @@ print(plot_phb_fitness_bee, position = c(0.5,0.65,1,1), more = TRUE)
 print(plot_phb_fitness_time, position = c(0.5,0,1,0.7))
 ```
 
-
 ```{r, include = FALSE}
 svg("../figures/figure_fitness_cbb.svg", width = 8, height = 7.5)
 print(plot_cbb_fitness_bee, position = c(0,0.65,0.5,1), more = TRUE)
@@ -485,4 +484,77 @@ print(plot_phb_fitness_time, position = c(0.5,0,1,0.7))
 dev.off()
 ```
 
+
+### Correlation of fitness and protein abundance
+
+The competition experiment has overlapping conditions with other experiments where protein abundance was determined by MS.
+Particularly, this is the condition `continuous` in the BarSeq data set (t = 8 generations), that is identical to the condition `FRC 0.1` in MS data (chemostat, fixed growth rate 0.1/h, 0.5 g/L fructose, 1 g/L NH4). We can import the MS proteomics data and see if (change in) fitness is correlated to protein abundance.
+
+```{r}
+load("../data/input/Ralstonia_eutropha.Rdata")
+df_prot <- Ralstonia_eutropha; rm(Ralstonia_eutropha)
+
+# merge the two data sets
+df_prot <- df_prot %>%
+  filter(condition == "FRC 0.1") %>%
+  left_join(select(df_fitness_comp, locus_tag,
+    tstat_median, continuous)) %>%
+  
+  # rename some variables for clarity
+  rename(fitness_barseq = continuous, fitness_tstat = tstat_median) %>%
+  
+  # add category based on fitness threshold
+  mutate(fitness_threshold = if_else(abs(fitness_barseq) >= 2, "fitness >= 2", "fitness < 2"))
+```
+
+Plot both variables against each other on a dotplot, and alternatively genes with differential fitness >= 2 separate from the rest as a violin plot.
+
+```{r, fig.width = 5.6, fig.height = 3.2}
+# plot fitness vs prot abundance
+plot_fitness_vs_abund <- xyplot(fitness_barseq ~ log10(mean_mass_fraction*0.68), df_prot,
+  groups = fitness_threshold,
+  par.settings = custom.colorblind,
+  pch = 19, alpha = 0.6, cex = 0.7,
+  xlab = expression("m"[protein]*" [log"[10]*" g gDCW"^-1*"]"), ylab = "fitness",
+  panel = function(x, y, ...) {
+    panel.grid(h = -1, v = -1, col = grey(0.9))
+    panel.xyplot(x, y, ...)
+    panel.key(..., points = FALSE)
+  }
+)
+
+
+boxplot_colorblind <- custom.colorblind()
+boxplot_colorblind$box.rectangle$lwd = 1.5
+boxplot_colorblind$box.umbrella$lwd = 1.5
+
+# protein abundance per essentiality group
+plot_fitness_vs_abund2 <- xyplot(log10(mean_mass_fraction*0.68) ~ factor(fitness_threshold), df_prot,
+    par.settings = boxplot_colorblind,
+    horizontal = FALSE, do.out = FALSE,
+    xlab = "", ylab = expression("m"[protein]*" [log"[10]*" g gDCW"^-1*"]"),
+    scales = list(alternating = FALSE, x = list(rot = 25, cex = 0.7)),
+    between = list(x = 0.5, y = 0.5),
+    panel = function(x, y, ...) {
+      panel.grid(h = -1, v = -1, col = grey(0.9))
+      panel.violin(x, y, lwd = 0, col = grey(0.6, 0.5), box.width = 0.7, ...)
+      panel.bwplot(x, y, pch = "|", box.width = 0.3, ...)
+      panel.pvalue(x, y, cex = 0.7, fixed_pos = -0.6, verbose = TRUE, ...)
+      panel.text(1:3, -7.8, labels = paste0("n=", table(x)), cex = 0.6)
+    }
+  )
+
+print(plot_fitness_vs_abund, position = c(0,0,0.5,1), more = TRUE)
+print(plot_fitness_vs_abund2, position = c(0.5,0,1,1))
+```
+
+What are the most abundant genes among those with strong effect on mutant fitness?
+We can create a table of the top N genes.
+
+```{r}
+df_prot %>% filter(abs(fitness_barseq) >= 2) %>%
+  arrange(desc(mean_mass_fraction)) %>% ungroup %>%
+  select(protein, locus_tag, Pathway, mean_mass_fraction, fitness_barseq) %>%
+  slice(1:10)
+```
 
