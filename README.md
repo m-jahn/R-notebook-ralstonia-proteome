@@ -7,8 +7,8 @@ Pipelines for data analysis and visualization of the Ralstonia proteome
 This repository contains data processing pipelines for the analysis of the litho-autotrophic bacterium *Ralstonia eutropha*, also known as *Cupriavidus necator*. The repository contains raw data, processed data and R notebooks (`*.Rmd`) for three types of data:
 
 - mass spectrometry proteomics
-- transposon knockout library
 - genome scale model simulations (FBA/RBA)
+- barcoded transposon knockout library
 
 All care was taken to guarantee scientific accuracy and adhere to good scientific practice in terms of statistics, reproducibility and code documentation. Please report any errors by filing a [github issue](https://github.com/m-jahn/R-notebook-ralstonia-proteome/issues) for this repository.
 
@@ -33,4 +33,5 @@ rmarkdown::render("pipeline.Rmd")
 
 ### Contents
 
-- [_Ralstonia eutropha_ gene essentiality analysis](https://m-jahn.github.io/R-notebook-ralstonia-proteome/TnSeq-essentiality.nb.html) based on transposon insertion frequency
+- [_Ralstonia eutropha_ gene essentiality analysis (TnSeq)](https://m-jahn.github.io/R-notebook-ralstonia-proteome/TnSeq-essentiality.nb.html), based on transposon insertion frequency
+- [_Ralstonia eutropha_ condition dependent fitness (BarSeq)](https://m-jahn.github.io/R-notebook-ralstonia-proteome/BarSeq-pulse.nb.html), based on transposon mutant depletion/enrichment over time

@@ -39,7 +39,8 @@ df_barseq <- read_tsv("../data/barseq/20201222_barseq_frc.poolcount")
 # import fitness data, the final output of the BarSeq pipeline
 df_fitness <- read_tsv("../data/barseq/20201222_barseq_frc.gene_fitness.tab") %>%
   mutate(Time = Time %>% str_remove(" generations") %>% as.numeric) %>%
-  rename(locus_tag = locusId)
+  rename(locus_tag = locusId) %>%
+  mutate(Condition = factor(Condition, c("continuous", "short pulse", "long pulse")))
 
 # import genome annotation
 df_ref <- read_csv("../data/ref/Ralstonia_H16_genome_annotation.csv") %>%
@@ -52,11 +53,11 @@ stdcol <- custom.colorblind()$superpose.line$col
 ### Summary statistics
 
 Convert pool counts table from wide to long format first.
-Generate an overview about the number of reads per barcode, barcodes per gene and so on. Around 8-10 M reads were mapped on average, per sample. The Continuous cultivation, 32 generation time point is an outlier.
+Generate an overview about the number of reads per barcode, barcodes per gene and so on. Around 8-10 M reads were mapped on average, per sample. The Continuous cultivation, 32 generation time point is an outlier, with a lower number of "usable" reads accoridng to the BarSeq pipeline. The total number of sequenced reads is however similar to the other samples; it is not clear yet why 50-70% of reads got discarded for the 32 generation sample.
 
 ```{r, message = FALSE}
-df_barseq <- df_barseq %>% 
-  gather(key = "condition", value = "n_reads", matches("Continuous|Long|Short"))
+df_barseq <- df_barseq %>%
+  gather(key = "condition", value = "n_reads", matches("Cont|Long|Short"))
 
 # Number of total mapped reads
 df_barseq %>% group_by(condition) %>%
@@ -65,9 +66,9 @@ df_barseq %>% group_by(condition) %>%
 
 Distribution of **number of reads per barcode**. There are sufficient reads for quantification, on average log2(n) = 5 = 32 reads per barcode were used. This is better coverage then what was obtained with the TnSeq sequencing runs. 
 
-```{r, fig.width = 9, fig.height = 6}
+```{r, fig.width = 8, fig.height = 5}
 plot_reads_per_bc <- histogram(~ log2(n_reads) | condition,
-  df_barseq, as.table = TRUE, layout = c(8,5),
+  df_barseq, as.table = TRUE, layout = c(8,4),
   par.settings = custom.colorblind(),
   between = list(x = 0.5, y = 0.5),
   xlab = expression("log"[2]*" reads per barcode"),
@@ -116,14 +117,14 @@ print(plot_reads_per_bc, split = c(1,1,2,1), more = TRUE)
 print(plot_reads_per_gene, split = c(2,1,2,1))
 ```
 
-One final technical parameter that is useful to assess the necessary sequencing depth is the number of genes that have been reliably quantified in all samples, meaning with a certain minimum number of reads. For this purpose, we exclude one empty sample `ShortPulse_32_gen` and the four `Continuous_32_gen` samples with insufficient read number.
+One final technical parameter that is useful to assess the necessary sequencing depth is the number of genes that have been reliably quantified in all samples, meaning with a certain minimum number of reads. For this purpose, we exclude one empty sample `ShortPulse_32_gen` and the continuous samples 16 and 32 generations with lower read number/diversity.
 
 ```{r, fig.with = 4, fig.height = 3, message = FALSE}
-df_fitness %>% filter(!((Condition == "continuous" & Time == 32) | 
+df_fitness %>% filter(!((Condition == "continuous" & Time %in% c(16,32)) | 
   (Condition == "long pulse" & Time == 32 & Replicate == 4))) %>%
   group_by(locus_tag) %>%
   summarize(geq_1_reads = sum(Counts >= 1), geq_10_reads = sum(Counts >= 10), 
-    geq_100_reads = sum(Counts >= 100)) %>% 
+    geq_100_reads = sum(Counts >= 100)) %>%
   
   xyplot(sort(geq_1_reads) + sort(geq_10_reads) + sort(geq_100_reads) ~ seq_along(locus_tag), .,
     xlab = "gene", ylab = "samples with n or more reads",
@@ -141,16 +142,16 @@ df_fitness %>% filter(!((Condition == "continuous" & Time == 32) |
 
 ### Depletion over time (generations)
 
-To track the depletion over time (several generations), it's good to keep the 0-time point samples in the same format instead of in a separate column. We move `n0` to `Counts` and fill `log2FC` and `Norm_fg` (normalized fitness per gene) columns with zeroes.
+To track the depletion over time (several generations), it's good to keep the 0-time point samples in the same format instead of in a separate column. We move `n0` to `Counts` and fill `log2FC`, `Norm_fg` (normalized fitness per gene), and t-statisitic columns with zeroes.
 
 TODO-List for improvements of `rebar` pipeline:
-- keep 0 time point counts, plus replicates
+- keep 0 time point counts, plus replicates in main table
 - replace 0 counts with NA by default
 
 ```{r}
 df_fitness <- df_fitness %>% filter(Time == 8) %>%
   mutate(Counts = n0, .keep = "unused") %>%
-  mutate(log2FC = 0, Time = 0, Norm_fg = 0) %>%
+  mutate(log2FC = 0, Time = 0, Norm_fg = 0, t = 0, Significant = 0) %>%
   bind_rows(select(df_fitness, -n0)) %>%
   select(-ID) %>%
   left_join(select(df_ref, locus_tag, gene_name, 
@@ -277,7 +278,7 @@ print(plot_fitness_comp[[3]], position = c(0.66,0,1,1))
 
 Most genes correlate in fitness value between conditions. That means, only few genes have a **condition-specific fitness effect**, i.e. increase or decrease fitness of the respective strain in a condition. This section investigates specific genes and their functions that show such differential fitness between conditions.
 
-We can define a differential fitness of 2 between conditions as a threshod value. This is arbitrary and simply encloses roughly 95% of the gene population. A more refined way would be to use a (data-dependent) statistical metric for setting a significance boundary (like confidence interval).
+We can define a differential fitness of 2 between conditions as a threshold value. This is arbitrary and simply encloses roughly 95% of the gene population. A more refined way would be to use a (data-dependent) statistical metric for setting a significance boundary (like confidence interval).
 
 ```{r}
 # obtain list of differential fitness per gene
@@ -289,8 +290,8 @@ df_diff_fitness <- df_fitness_comp %>% mutate(
 
 df_diff_fitness %>%
   summarize(
-    sum(SP_CO, na.rm = TRUE), 
-    sum(LP_CO, na.rm = TRUE), 
+    sum(SP_CO, na.rm = TRUE),
+    sum(LP_CO, na.rm = TRUE),
     sum(SP_LP, na.rm = TRUE))
 ```
 
@@ -308,13 +309,14 @@ print(plot_venn)
 
 ### Depletion of selected genes over time
 
-Based on the previous step, a set of genes of interest and their depletion/enrichment plotted over time (plotted is normalized gene fitness). The most interesting sets are A) genes with differential fitness for SP vs CO AND LP vs CO. And B) genes with diff. fitness for LP vs SP. For the first set, we are specifically looking for genes that have **lower fitness score** in the pulsed conditions, i.e. genes involved in adaptation to changing conditions.
+To measure depletion for more than 2 time points gives more confidence that the trends we see are real and consistent over several generations. Another question is to decide how many generations are enough to determine significant differences in fitness. To answer that question, we can look at fitness for 8, 16 and 32 generations for a selected condition and compare how many additional genes show up, each time point (or what the overlap is between time points).
 
-```{r, fig.width = 8, fig.height = 6, message = FALSE}
+
+```{r, fig.width = 7, fig.height = 6, message = FALSE}
 # general plotting function for fitness as time series
 draw_fitness_ts  <- function(data) {
   xyplot(Norm_fg ~ factor(Time) | str_extract(gene_name, "[a-zA-Z0-9_]+"), data,
-    groups = Condition, as.table = TRUE,
+    groups = Condition, as.table = TRUE, col = stdcol[c(5,3,2)],
     par.settings = custom.colorblind(), type = c("p", "l"),
     xlab = "generations", ylab = "fitness",
     pch = 19, between = list(x = 0.5, y = 0.5),
@@ -327,48 +329,25 @@ draw_fitness_ts  <- function(data) {
   )
 }
 
+# select genes that are significantly depleted after 32 G
+list_sign_genes_SP <- df_fitness %>% filter(Condition == "short pulse", t <= -4) %>%
+  count(locus_tag) %>% pull(locus_tag)
 
-df_fitness %>% inner_join(
-    filter(df_diff_fitness, SP_CO & LP_CO & !SP_LP) %>% select(locus_tag)
-  ) %>%
-  draw_fitness_ts
+# plot
+df_fitness %>% filter(locus_tag %in% list_sign_genes_SP) %>% draw_fitness_ts
+
+# table with number of significant genes after each number of generations
+df_fitness %>% filter(
+    locus_tag %in% list_sign_genes_SP,
+    Condition == "short pulse") %>%
+  group_by(locus_tag, Time) %>%
+  summarize(t = min(t)) %>%
+  group_by(Time) %>% summarize(significant_genes = sum(t <= -4), total_genes = n())
 ```
-
-### Functional enrichment
-
-And finally investigate their function, or at least enrichment in certain functional groups. What are the dominant COG groups per for the genes of interest?
-
-```{r, message = FALSE}
-df_diff_fitness %>% count(COG_Process, sort = TRUE)
-```
-
-The largest group is transcription (apart from `Function unknown`) which is interesting. It seems that some **transcription factors** within this set are important for adaptation to changing conditions, cell cycling, and so on. We can look at the transcription factors within the set of 38 genes that are different between *both* pulsed conditions, and the continuous condition.
-
-```{r}
-df_diff_fitness %>%
-  filter(SP_CO & LP_CO & !SP_LP, COG_Process == "Transcription") %>%
-  arrange(continuous)
-```
-
-**6 TFs have lower fitness in pulse conditions**
-
-- H16_B2087: Response regulator, NarL-family, DNA binding (TF, nitrite/nitrate response regulator)
-- H16_A3144, phcA: Transcriptional regulator, LysR-family, involved in regulation of the quorum sensing circuit and virulence factors in Ralst. solanacearum
-- H16_A1177: Transcriptional regulator, GlvR-family, involved in regulation of central carbon metabolism genes EDA, EDD, glucokinase, and nagE (N-acetylglucosamine biosynthesis)
-- H16_A0502: DNA-binding protein Fis (Factor for inversion stimulation), small abundant regulator in E.coli, involved in many processes like transcriptional activation of rRNA and tRNA operons, and oriC-directed DNA replication.
-- H16_A0387, rpoN: RNA polymerase sigma-54 factor. the RNA-Pol regulating sigma factor for N starvation
-- H16_A0310: Transcriptional regulator, GntR-family. Regulates N-acetylglucosamine biosynthesis, e.g. via nagE. Interacts with lacI family TFs (?).
-
-**4 TFs have higher fitness in pulse conditions**
-
-- H16_B2025: Cold shock protein, DNA binding (TF)
-- H16_B1970: Response regulator, NarL-family, DNA binding (TF, nitrite/nitrate response regulator)
-- H16_B1728, prtR: Transmembrane activator of PrtI, an RNA polymerase sigma subunit (ECF sigma factor, belongs to the sigma-70 factor family)
-- H16_B1673: Transcriptional regulator, TetR/AcrR-family, Repressor involved in the biosynthesis of the osmoprotectant glycine betaine. It represses transcription of the choline transporter BetT and the genes of BetAB involved in the synthesis of glycine betaine.
 
 ### Heatmap of genes with strong fitness effect
 
-To include *all genes*, we can also filter genes by a simple fitness threshold instead of the *differential* fitness, dF, gives more comprehensive results. For each sample, lower and upper fitness threshold are defined (or t-statistics) and all genes are plotted with fitness score on a heatmap.
+To include *all genes*, we can also filter genes by a simple fitness threshold instead of the *differential fitness dF*, which probably gives more comprehensive results. For each sample, lower and upper fitness threshold are defined (or t-statistics) and all genes are plotted with fitness score on a heatmap.
 
 ```{r, fig.width = 9, fig.height = 3.5}
 # generate colorpalette for heatmap
@@ -394,7 +373,7 @@ reordered <- mat_heatmap %>% dist %>% hclust %>% as.dendrogram %>%
   order.dendrogram
 
 # plot heatmap
-plot_heatmap_3 <- levelplot(mat_heatmap[reordered, ] %>% replace(., . > 6, 6) %>% replace(., . < -6, -6),
+plot_heatmap_1 <- levelplot(mat_heatmap[reordered, ] %>% replace(., . > 6, 6) %>% replace(., . < -6, -6),
   par.settings = custom.colorblind(),
   col.regions = colorRampPalette(heat_cols)(16),
   at = seq(-6, 6, 1), aspect = "fill",
@@ -406,14 +385,15 @@ plot_heatmap_3 <- levelplot(mat_heatmap[reordered, ] %>% replace(., . > 6, 6) %>
 )
 
 # plot color coded COG groups
-plot_heatmap_4 <- xyplot(rep(1, length(continuous)) ~ seq_along(continuous), df_heatmap[reordered, ],
+plot_heatmap_2 <- xyplot(rep(1, length(continuous)) ~ seq_along(continuous), df_heatmap[reordered, ],
   groups = COG_Process, par.settings = custom.colorblind(),
   scales = list(draw = FALSE), xlab = "", ylab = "",
   xlim = c(0.25, length(reordered)+0.25), col = stdcol[c(1,2,3,4)],
   pch = 15, cex = 1.1, auto.key = list(columns = 4, cex = 0.7))
 
-print(plot_heatmap_4, position = c(0.1,0.76,0.92,1), more = TRUE)
-print(plot_heatmap_3, position = c(0,0,1,0.92))
+
+print(plot_heatmap_1, position = c(0,0,1,0.92), more = TRUE)
+print(plot_heatmap_2, position = c(0.1,0.76,0.92,1))
 ```
 
 ```{r, include = FALSE}
@@ -432,56 +412,71 @@ First we come up with a generalized function to compare all genes of a pathway a
 
 ```{r}
 draw_beeswarm <- function(data) {
-  xyplot(Norm_fg_median ~ factor(Condition, unique(Condition)[c(1,3,2)]), data,
-    groups = seq_type,
-    xlab = "", ylab = "fitness", ylim = c(-1.5, 1.5),
+  xyplot(Norm_fg_median ~ Condition, data,
+    groups = Condition, col = stdcol[c(5,3,2)],
+    xlab = "", ylab = "fitness", ylim = c(-3.5, 3.5),
     par.settings = custom.colorblind(), as.table = TRUE,
     between = list(x = 0.5, y = 0.5), pch = 19,
     scales = list(alternating = FALSE),
     panel = function(x, y, ...) {
       panel.grid(h = -1, v = -1, col = grey(0.9))
-      panel.beeswarm(x, y, bin_y = TRUE, breaks_y = seq(-1.5,1.5, length.out = 16), ...)
-      panel.key(corner = c(0.95, 0.05), cex = 0.6, points = FALSE, ...)
-      panel.pvalue(x, y, pvalue = TRUE, fixed_pos = 1.6, cex = 0.6, col = 1, ...)
+      panel.abline(h = 0, lwd = 1.5, col = grey(0.7), lty = 2)
+      panel.beeswarm(x, y, bin_y = TRUE, ...)
+      panel.pvalue(x, y, pvalue = TRUE, fixed_pos = 1.6, cex = 0.6, col = 1)
     }
   )
 }
 ```
 
 
-```{r, fig.width = 8, fig.height = 7.5, warning = FALSE}
+```{r, fig.width = 4, fig.height = 7.5, warning = FALSE}
 # beeswarm plots
 plot_cbb_fitness_bee <- df_fitness_summary %>%
-  filter(Time == 8,
-    (scaffold == "NC_005241.1" & start > 437500 & start < 451000) |
-    (scaffold == "NC_008314.1" & start > 1547000 & start < 1564450)
-  ) %>% draw_beeswarm
-  
-plot_phb_fitness_bee <- df_fitness_summary %>%
-  filter(Time == 8, str_detect(gene_name, "^pha[A-Z]")) %>%
+  filter(Time == 16, str_detect(gene_name, "cbb.|cfx.")) %>%
   draw_beeswarm
 
 # single time series per gene
-plot_cbb_fitness_time <- df_fitness %>% filter(str_detect(gene_name, "cbb.|cfx.")) %>% 
+plot_cbb_fitness_time <- df_fitness %>%
+  filter(str_detect(gene_name, "cbb.|cfx."), Time != 32) %>% 
   draw_fitness_ts
 
-plot_phb_fitness_time <- df_fitness %>% filter(str_detect(gene_name, "^pha[A-Z]")) %>%
-  draw_fitness_ts
-
-
-print(plot_cbb_fitness_bee, position = c(0,0.65,0.5,1), more = TRUE)
-print(plot_cbb_fitness_time, position = c(0,0,0.5,0.7), more = TRUE)
-print(plot_phb_fitness_bee, position = c(0.5,0.65,1,1), more = TRUE)
-print(plot_phb_fitness_time, position = c(0.5,0,1,0.7))
+print(plot_cbb_fitness_bee, position = c(0,0.65,1,1), more = TRUE)
+print(plot_cbb_fitness_time, position = c(0,0,1,0.7))
 ```
+Finally export figure with selected CBB genes.
 
-```{r, include = FALSE}
-svg("../figures/figure_fitness_cbb.svg", width = 8, height = 7.5)
-print(plot_cbb_fitness_bee, position = c(0,0.65,0.5,1), more = TRUE)
-print(plot_cbb_fitness_time, position = c(0,0,0.5,0.7), more = TRUE)
-print(plot_phb_fitness_bee, position = c(0.5,0.65,1,1), more = TRUE)
-print(plot_phb_fitness_time, position = c(0.5,0,1,0.7))
-dev.off()
+```{r, fig.width = 4.5, fig.height = 5.5}
+# single time series per gene
+plot_cbb_fitness_select <- df_fitness %>% filter(
+  Time != 32,
+  str_detect(gene_name, "cbb[LSGKP]|cbxSP|cfxR")) %>%
+  mutate(gene_name = case_when(
+    gene_name == "cfxR cbbR H16_B1396" ~ "cbbR (REG)",
+    gene_name == "cbbKP PHG417" ~ "cbbK-P (PGK)",
+    gene_name == "cbbGP PHG418" ~ "cbbG-P (GAPDH)",
+    gene_name == "cfxP cbbPP PHG421" ~ "cbbP-P (PRUK)",
+    gene_name == "cbxSP cbbS cbbSP cfxSP rbcS PHG426" ~ "cbbS-P (RBPC)",
+    gene_name == "cbbL2 cbbL cbxLP cfxLP PHG427" ~ "cbbL-P (RBPC)"
+  )) %>%
+  
+  xyplot(Norm_fg ~ factor(Time) | factor(gene_name, unique(gene_name)), .,
+    groups = Condition, as.table = TRUE, col = stdcol[c(5,3,2)],
+    par.settings = custom.colorblind(), type = c("p", "l"),
+    xlab = "generations", ylab = "fitness", aspect = 0.9,
+    ylim = c(-4, 4), layout = c(3, 2),
+    pch = 19, between = list(x = 0.5, y = 0.5),
+    scales = list(alternating = FALSE), lwd = 2,
+    panel = function(x, y, ...) {
+      panel.grid(h = -1, v = -1, col = grey(0.9))
+      panel.errbars(x, y, ewidth = 0, ...)
+      panel.key(..., cex = 0.6, points = FALSE, corner = c(0, 0.95))
+    }
+  )
+
+#svg("../figures/figure_fitness_cbb.svg", width = 4.5, height = 5.5)
+print(plot_cbb_fitness_bee, position = c(0.2,0.54,1,1), more = TRUE)
+print(plot_cbb_fitness_select, position = c(0,0,1,0.62))
+#dev.off()
 ```
 
 
@@ -507,7 +502,7 @@ df_prot <- df_prot %>%
   mutate(fitness_threshold = if_else(abs(fitness_barseq) >= 2, "fitness >= 2", "fitness < 2"))
 ```
 
-Plot both variables against each other on a dotplot, and alternatively genes with differential fitness >= 2 separate from the rest as a violin plot.
+Plot both variables against each other on a dotplot, and alternatively genes with differential fitness >= 2 separate from the rest as a violin plot. There's no linear correlation between fitness and protein abundance of a gene. However, when genes are grouped into two groups, no effect or effect on fitness, then genes that have an effect on fitness are significantly more abundant.
 
 ```{r, fig.width = 5.6, fig.height = 3.2}
 # plot fitness vs prot abundance
@@ -548,13 +543,5 @@ print(plot_fitness_vs_abund, position = c(0,0,0.5,1), more = TRUE)
 print(plot_fitness_vs_abund2, position = c(0.5,0,1,1))
 ```
 
-What are the most abundant genes among those with strong effect on mutant fitness?
-We can create a table of the top N genes.
 
-```{r}
-df_prot %>% filter(abs(fitness_barseq) >= 2) %>%
-  arrange(desc(mean_mass_fraction)) %>% ungroup %>%
-  select(protein, locus_tag, Pathway, mean_mass_fraction, fitness_barseq) %>%
-  slice(1:10)
-```
 

@@ -1,37 +1,49 @@
-ID	Date	Condition	Sample
-IT001	21/12	Continuous0gen	1a
-IT002	21/12	Continuous0gen	1b
-IT003	21/12	Continuous0gen	1c
-IT004	21/12	Continuous0gen	1d
-IT005	21/12	ShortPulse0gen	2a
-IT006	21/12	ShortPulse0gen	2b
-IT007	21/12	ShortPulse0gen	2c
-IT008	21/12	ShortPulse0gen	2d
-IT009	21/12	LongPulse0gen	3a
-IT010	21/12	LongPulse0gen	3b
-IT011	21/12	LongPulse0gen	3c
-IT012	21/12	LongPulse0gen	3d
-IT013	21/12	Continuous8gen	4a
-IT014	21/12	Continuous8gen	4b
-IT015	21/12	Continuous8gen	4c
-IT016	21/12	Continuous8gen	4d
-IT017	21/12	ShortPulse8gen	5a
-IT018	21/12	ShortPulse8gen	5b
-IT019	21/12	ShortPulse8gen	5c
-IT020	21/12	ShortPulse8gen	5d
-IT021	21/12	LongPulse8gen	6a
-IT022	21/12	LongPulse8gen	6b
-IT023	21/12	LongPulse8gen	6c
-IT024	21/12	LongPulse8gen	6d
-IT025	21/12	Continuous32gen	7a
-IT026	21/12	Continuous32gen	7b
-IT027	21/12	Continuous32gen	7c
-IT028	21/12	Continuous32gen	7d
-IT029	21/12	ShortPulse32gen	8a
-IT030	21/12	ShortPulse32gen	8b
-IT031	21/12	ShortPulse32gen	8c
-IT032	21/12	ShortPulse32gen	8d
-IT033	21/12	LongPulse32gen	9a
-IT034	21/12	LongPulse32gen	9b
-IT035	21/12	LongPulse32gen	9c
-IT036	21/12	LongPulse32gen	9d
+Filename	ID	Condition	Replicate	Date	Time	Reference
+Continuous0gen_IT001_1a	01	continuous	1	2020-12-23	0 generations	TRUE
+Continuous0gen_IT002_1b	02	continuous	2	2020-12-23	0 generations	TRUE
+Continuous0gen_IT003_1c	03	continuous	3	2020-12-23	0 generations	TRUE
+Continuous0gen_IT004_1d	04	continuous	4	2020-12-23	0 generations	TRUE
+ShortPulse0gen_IT005_2a	05	short pulse	1	2020-12-23	0 generations	TRUE
+ShortPulse0gen_IT006_2b	06	short pulse	2	2020-12-23	0 generations	TRUE
+ShortPulse0gen_IT007_2c	07	short pulse	3	2020-12-23	0 generations	TRUE
+ShortPulse0gen_IT008_2d	08	short pulse	4	2020-12-23	0 generations	TRUE
+LongPulse0gen_IT009_3a	09	long pulse	1	2020-12-23	0 generations	TRUE
+LongPulse0gen_IT010_3b	10	long pulse	2	2020-12-23	0 generations	TRUE
+LongPulse0gen_IT011_3c	11	long pulse	3	2020-12-23	0 generations	TRUE
+LongPulse0gen_IT012_3d	12	long pulse	4	2020-12-23	0 generations	TRUE
+Continuous8gen_IT013_4a	13	continuous	1	2020-12-23	8 generations	FALSE
+Continuous8gen_IT014_4b	14	continuous	2	2020-12-23	8 generations	FALSE
+Continuous8gen_IT015_4c	15	continuous	3	2020-12-23	8 generations	FALSE
+Continuous8gen_IT016_4d	16	continuous	4	2020-12-23	8 generations	FALSE
+ShortPulse8gen_IT017_5a	17	short pulse	1	2020-12-23	8 generations	FALSE
+ShortPulse8gen_IT018_5b	18	short pulse	2	2020-12-23	8 generations	FALSE
+ShortPulse8gen_IT019_5c	19	short pulse	3	2020-12-23	8 generations	FALSE
+ShortPulse8gen_IT020_5d	20	short pulse	4	2020-12-23	8 generations	FALSE
+LongPulse8gen_IT021_6a	21	long pulse	1	2020-12-23	8 generations	FALSE
+LongPulse8gen_IT022_6b	22	long pulse	2	2020-12-23	8 generations	FALSE
+LongPulse8gen_IT023_6c	23	long pulse	3	2020-12-23	8 generations	FALSE
+LongPulse8gen_IT024_6d	24	long pulse	4	2020-12-23	8 generations	FALSE
+Cont_16_1_S1_R1	37	continuous	1	2020-12-23	16 generations	FALSE
+Cont_16_2_S2_R1	38	continuous	2	2020-12-23	16 generations	FALSE
+Cont_16_3_S3_R1	39	continuous	3	2020-12-23	16 generations	FALSE
+Cont_16_4_S4_R1	40	continuous	4	2020-12-23	16 generations	FALSE
+Short_16_1_S5_R1	41	short pulse	1	2020-12-23	16 generations	FALSE
+Short_16_2_S6_R1	42	short pulse	2	2020-12-23	16 generations	FALSE
+Short_16_3_S7_R1	43	short pulse	3	2020-12-23	16 generations	FALSE
+Short_16_4_S8_R1	44	short pulse	4	2020-12-23	16 generations	FALSE
+Long_16_1_S9_R1	45	long pulse	1	2020-12-23	16 generations	FALSE
+Long_16_2_S10_R1	46	long pulse	2	2020-12-23	16 generations	FALSE
+Long_16_3_S11_R1	47	long pulse	3	2020-12-23	16 generations	FALSE
+Long_16_4_S12_R1	48	long pulse	4	2020-12-23	16 generations	FALSE
+Cont_32_1_S13_R1	25	continuous	1	2020-12-23	32 generations	FALSE
+Cont_32_2_S14_R1	26	continuous	2	2020-12-23	32 generations	FALSE
+Cont_32_3_S15_R1	27	continuous	3	2020-12-23	32 generations	FALSE
+Cont_32_4_S16_R1	28	continuous	4	2020-12-23	32 generations	FALSE
+ShortPulse32gen_IT029_8a	29	short pulse	1	2020-12-23	32 generations	FALSE
+ShortPulse32gen_IT030_8b	30	short pulse	2	2020-12-23	32 generations	FALSE
+ShortPulse32gen_IT031_8c	31	short pulse	3	2020-12-23	32 generations	FALSE
+ShortPulse32gen_IT032_8d	32	short pulse	4	2020-12-23	32 generations	FALSE
+LongPulse32gen_IT033_9a	33	long pulse	1	2020-12-23	32 generations	FALSE
+LongPulse32gen_IT034_9b	34	long pulse	2	2020-12-23	32 generations	FALSE
+LongPulse32gen_IT035_9c	35	long pulse	3	2020-12-23	32 generations	FALSE
+LongPulse32gen_IT036_9d	36	long pulse	4	2020-12-23	32 generations	FALSE
