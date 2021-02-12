@@ -30,17 +30,19 @@ library(ggvenn)
 
 ### Data import and processing
 
-Read in the main data table with reads per barcode and sample ('pool counts'), and the fitness table. Tables were obtained by processing sequencing data with a custom [BarSeq pipeline](https://github.com/m-jahn/rebar).
+Read in the main data table with reads per barcode and sample ('pool counts'), and the fitness table. Tables were obtained by processing sequencing data with a custom [BarSeq pipeline](https://github.com/m-jahn/rebar). We remove the 32 generations sequencing samples due to the low read count in the `continuous` samples.
 
 ```{r, message = FALSE}
 # import barseq counts data in wide format
-df_barseq <- read_tsv("../data/barseq/20201222_barseq_frc.poolcount")
+df_barseq <- read_tsv("../data/barseq/20201222_barseq_frc.poolcount") %>%
+  select(!matches("32gen|_32_"))
 
 # import fitness data, the final output of the BarSeq pipeline
 df_fitness <- read_tsv("../data/barseq/20201222_barseq_frc.gene_fitness.tab") %>%
   mutate(Time = Time %>% str_remove(" generations") %>% as.numeric) %>%
   rename(locus_tag = locusId) %>%
-  mutate(Condition = factor(Condition, c("continuous", "short pulse", "long pulse")))
+  mutate(Condition = factor(Condition, c("continuous", "short pulse", "long pulse"))) %>%
+  filter(Time != 32)
 
 # import genome annotation
 df_ref <- read_csv("../data/ref/Ralstonia_H16_genome_annotation.csv") %>%
@@ -66,9 +68,9 @@ df_barseq %>% group_by(condition) %>%
 
 Distribution of **number of reads per barcode**. There are sufficient reads for quantification, on average log2(n) = 5 = 32 reads per barcode were used. This is better coverage then what was obtained with the TnSeq sequencing runs. 
 
-```{r, fig.width = 8, fig.height = 5}
+```{r, fig.width = 8, fig.height = 5.5}
 plot_reads_per_bc <- histogram(~ log2(n_reads) | condition,
-  df_barseq, as.table = TRUE, layout = c(8,4),
+  df_barseq, as.table = TRUE, layout = c(8,5),
   par.settings = custom.colorblind(),
   between = list(x = 0.5, y = 0.5),
   xlab = expression("log"[2]*" reads per barcode"),
@@ -96,6 +98,8 @@ plot_reads_per_bc <- histogram(~ Strains_per_gene,
   panel = function(x, ...) {
     panel.grid(h = -1, v = -1, col = grey(0.9))
     panel.histogram(x, border = "white", ...)
+    panel.ablineq(v = mean(x, na.rm = TRUE),
+      fontfamily = "FreeSans", col = grey(0.5), lwd = 2, lty = 2)
   }
 )
 
@@ -110,6 +114,8 @@ plot_reads_per_gene <- histogram(~ log2(reads_per_gene_median),
   panel = function(x, ...) {
     panel.grid(h = -1, v = -1, col = grey(0.9))
     panel.histogram(x, border = "white", ...)
+    panel.ablineq(v = mean(x[!is.infinite(x)]),
+      fontfamily = "FreeSans", col = grey(0.5), lwd = 2, lty = 2)
   }
 )
 
@@ -120,8 +126,7 @@ print(plot_reads_per_gene, split = c(2,1,2,1))
 One final technical parameter that is useful to assess the necessary sequencing depth is the number of genes that have been reliably quantified in all samples, meaning with a certain minimum number of reads. For this purpose, we exclude one empty sample `ShortPulse_32_gen` and the continuous samples 16 and 32 generations with lower read number/diversity.
 
 ```{r, fig.with = 4, fig.height = 3, message = FALSE}
-df_fitness %>% filter(!((Condition == "continuous" & Time %in% c(16,32)) | 
-  (Condition == "long pulse" & Time == 32 & Replicate == 4))) %>%
+df_fitness %>% filter(!(Condition == "continuous" & Time == 16)) %>%
   group_by(locus_tag) %>%
   summarize(geq_1_reads = sum(Counts >= 1), geq_10_reads = sum(Counts >= 10), 
     geq_100_reads = sum(Counts >= 100)) %>%
@@ -309,7 +314,7 @@ print(plot_venn)
 
 ### Depletion of selected genes over time
 
-To measure depletion for more than 2 time points gives more confidence that the trends we see are real and consistent over several generations. Another question is to decide how many generations are enough to determine significant differences in fitness. To answer that question, we can look at fitness for 8, 16 and 32 generations for a selected condition and compare how many additional genes show up, each time point (or what the overlap is between time points).
+To measure depletion for more than 2 time points gives more confidence that the trends we see are real and consistent over several generations. Another question is to decide how many generations are enough to determine significant differences in fitness. It seems that a second time point such as 16 generations helps to judge if fitness effects are consistent or not. If several time points are available, one can also fit a linear model and compare ANOVA p vlaues and R^2.
 
 
 ```{r, fig.width = 7, fig.height = 6, message = FALSE}
@@ -329,20 +334,11 @@ draw_fitness_ts  <- function(data) {
   )
 }
 
-# select genes that are significantly depleted after 32 G
-list_sign_genes_SP <- df_fitness %>% filter(Condition == "short pulse", t <= -4) %>%
-  count(locus_tag) %>% pull(locus_tag)
-
-# plot
-df_fitness %>% filter(locus_tag %in% list_sign_genes_SP) %>% draw_fitness_ts
-
-# table with number of significant genes after each number of generations
-df_fitness %>% filter(
-    locus_tag %in% list_sign_genes_SP,
-    Condition == "short pulse") %>%
-  group_by(locus_tag, Time) %>%
-  summarize(t = min(t)) %>%
-  group_by(Time) %>% summarize(significant_genes = sum(t <= -4), total_genes = n())
+# look at genes with differential fitness
+df_diff_fitness %>% filter(SP_LP) %>%
+  inner_join(df_fitness) %>%
+  filter(Condition != "continuous") %>%
+  draw_fitness_ts
 ```
 
 ### Heatmap of genes with strong fitness effect
@@ -422,48 +418,41 @@ draw_beeswarm <- function(data) {
       panel.grid(h = -1, v = -1, col = grey(0.9))
       panel.abline(h = 0, lwd = 1.5, col = grey(0.7), lty = 2)
       panel.beeswarm(x, y, bin_y = TRUE, ...)
-      panel.pvalue(x, y, pvalue = TRUE, fixed_pos = 1.6, cex = 0.6, col = 1)
     }
   )
 }
 ```
 
+The cbb mutants for chromosome 2 seem to have a more positive fitness score compared to their counter parts on the pHG1 megaplasmid. However, the four genes with higher fitness show suspicious jumps from 8 to 16 hours. A  look up in the summary table revealed that they have only 1 or 2 mutants quantified per gene, which makes the results less reliable, particularly for the continuous condition with the low read problem at 16 gen. It is better to exclude these mutants. The pHG1 copies have 4,5,6 and 6 mutants respectively.
 
-```{r, fig.width = 4, fig.height = 7.5, warning = FALSE}
+```{r, fig.width = 5.5, fig.height = 5.5}
 # beeswarm plots
 plot_cbb_fitness_bee <- df_fitness_summary %>%
-  filter(Time == 16, str_detect(gene_name, "cbb.|cfx.")) %>%
+  filter(Time == 16, str_detect(gene_name, "cbb.|cfx.|cbx.")) %>%
   draw_beeswarm
 
 # single time series per gene
-plot_cbb_fitness_time <- df_fitness %>%
-  filter(str_detect(gene_name, "cbb.|cfx."), Time != 32) %>% 
-  draw_fitness_ts
-
-print(plot_cbb_fitness_bee, position = c(0,0.65,1,1), more = TRUE)
-print(plot_cbb_fitness_time, position = c(0,0,1,0.7))
-```
-Finally export figure with selected CBB genes.
-
-```{r, fig.width = 4.5, fig.height = 5.5}
-# single time series per gene
-plot_cbb_fitness_select <- df_fitness %>% filter(
-  Time != 32,
-  str_detect(gene_name, "cbb[LSGKP]|cbxSP|cfxR")) %>%
+plot_cbb_fitness_select <- df_fitness %>% 
+  filter(str_detect(gene_name, "(cbb|cfx|cbx)[PSLZKGATE]P|cbbR")) %>%
   mutate(gene_name = case_when(
     gene_name == "cfxR cbbR H16_B1396" ~ "cbbR (REG)",
-    gene_name == "cbbKP PHG417" ~ "cbbK-P (PGK)",
-    gene_name == "cbbGP PHG418" ~ "cbbG-P (GAPDH)",
-    gene_name == "cfxP cbbPP PHG421" ~ "cbbP-P (PRUK)",
-    gene_name == "cbxSP cbbS cbbSP cfxSP rbcS PHG426" ~ "cbbS-P (RBPC)",
-    gene_name == "cbbL2 cbbL cbxLP cfxLP PHG427" ~ "cbbL-P (RBPC)"
-  )) %>%
+    gene_name == "cfxP cbbPP PHG421" ~ "cbbP (PRUK)",
+    gene_name == "cbxSP cbbS cbbSP cfxSP rbcS PHG426" ~ "cbbS (RBPC)",
+    gene_name == "cbbL2 cbbL cbxLP cfxLP PHG427" ~ "cbbL (RBPC)",
+    gene_name == "cbbZP PHG419" ~ "cbbZ (PGP)",
+    gene_name == "cbbKP PHG417" ~ "cbbK (PGK)",
+    gene_name == "cbbGP PHG418" ~ "cbbG (GAPDH)",
+    gene_name == "cbbAP PHG416" ~ "cbbA (FBA)",
+    gene_name == "cbbTP PHG420" ~ "cbbT (TKT)",
+    gene_name == "cbxXP cfxXP PHG425" ~ "cbbX (RBCA)",
+    gene_name == "cbbEP cfxE PHG423" ~ "cbbE (RPE)"
+  ) %>% factor(., unique(.)[c(1,7,9,10,5,3,4,2,6,8)])) %>%
   
-  xyplot(Norm_fg ~ factor(Time) | factor(gene_name, unique(gene_name)), .,
+  xyplot(Norm_fg ~ factor(Time) | gene_name, .,
     groups = Condition, as.table = TRUE, col = stdcol[c(5,3,2)],
     par.settings = custom.colorblind(), type = c("p", "l"),
     xlab = "generations", ylab = "fitness", aspect = 0.9,
-    ylim = c(-4, 4), layout = c(3, 2),
+    ylim = c(-4, 4), layout = c(5, 2),
     pch = 19, between = list(x = 0.5, y = 0.5),
     scales = list(alternating = FALSE), lwd = 2,
     panel = function(x, y, ...) {
@@ -473,17 +462,21 @@ plot_cbb_fitness_select <- df_fitness %>% filter(
     }
   )
 
-#svg("../figures/figure_fitness_cbb.svg", width = 4.5, height = 5.5)
-print(plot_cbb_fitness_bee, position = c(0.2,0.54,1,1), more = TRUE)
+print(plot_cbb_fitness_bee, position = c(0.3,0.54,1,1), more = TRUE)
 print(plot_cbb_fitness_select, position = c(0,0,1,0.62))
-#dev.off()
+```
+```{r, include = FALSE}
+svg("../figures/figure_fitness_cbb.svg", width = 5.5, height = 5.5)
+print(plot_cbb_fitness_bee, position = c(0.3,0.54,1,1), more = TRUE)
+print(plot_cbb_fitness_select, position = c(0,0,1,0.62))
+dev.off()
 ```
 
 
 ### Correlation of fitness and protein abundance
 
 The competition experiment has overlapping conditions with other experiments where protein abundance was determined by MS.
-Particularly, this is the condition `continuous` in the BarSeq data set (t = 8 generations), that is identical to the condition `FRC 0.1` in MS data (chemostat, fixed growth rate 0.1/h, 0.5 g/L fructose, 1 g/L NH4). We can import the MS proteomics data and see if (change in) fitness is correlated to protein abundance.
+Particularly, this is the condition `continuous` in the BarSeq data set (t = 8 or 16 generations), that is identical to the condition `FRC 0.1` in MS data (chemostat, fixed growth rate 0.1/h, 0.5 g/L fructose, 1 g/L NH4). We can import the MS proteomics data and see if (change in) fitness is correlated to protein abundance.
 
 ```{r}
 load("../data/input/Ralstonia_eutropha.Rdata")
@@ -501,47 +494,3 @@ df_prot <- df_prot %>%
   # add category based on fitness threshold
   mutate(fitness_threshold = if_else(abs(fitness_barseq) >= 2, "fitness >= 2", "fitness < 2"))
 ```
-
-Plot both variables against each other on a dotplot, and alternatively genes with differential fitness >= 2 separate from the rest as a violin plot. There's no linear correlation between fitness and protein abundance of a gene. However, when genes are grouped into two groups, no effect or effect on fitness, then genes that have an effect on fitness are significantly more abundant.
-
-```{r, fig.width = 5.6, fig.height = 3.2}
-# plot fitness vs prot abundance
-plot_fitness_vs_abund <- xyplot(fitness_barseq ~ log10(mean_mass_fraction*0.68), df_prot,
-  groups = fitness_threshold,
-  par.settings = custom.colorblind,
-  pch = 19, alpha = 0.6, cex = 0.7,
-  xlab = expression("m"[protein]*" [log"[10]*" g gDCW"^-1*"]"), ylab = "fitness",
-  panel = function(x, y, ...) {
-    panel.grid(h = -1, v = -1, col = grey(0.9))
-    panel.xyplot(x, y, ...)
-    panel.key(..., points = FALSE)
-  }
-)
-
-
-boxplot_colorblind <- custom.colorblind()
-boxplot_colorblind$box.rectangle$lwd = 1.5
-boxplot_colorblind$box.umbrella$lwd = 1.5
-
-# protein abundance per essentiality group
-plot_fitness_vs_abund2 <- xyplot(log10(mean_mass_fraction*0.68) ~ factor(fitness_threshold), df_prot,
-    par.settings = boxplot_colorblind,
-    horizontal = FALSE, do.out = FALSE,
-    xlab = "", ylab = expression("m"[protein]*" [log"[10]*" g gDCW"^-1*"]"),
-    scales = list(alternating = FALSE, x = list(rot = 25, cex = 0.7)),
-    between = list(x = 0.5, y = 0.5),
-    panel = function(x, y, ...) {
-      panel.grid(h = -1, v = -1, col = grey(0.9))
-      panel.violin(x, y, lwd = 0, col = grey(0.6, 0.5), box.width = 0.7, ...)
-      panel.bwplot(x, y, pch = "|", box.width = 0.3, ...)
-      panel.pvalue(x, y, cex = 0.7, fixed_pos = -0.6, verbose = TRUE, ...)
-      panel.text(1:3, -7.8, labels = paste0("n=", table(x)), cex = 0.6)
-    }
-  )
-
-print(plot_fitness_vs_abund, position = c(0,0,0.5,1), more = TRUE)
-print(plot_fitness_vs_abund2, position = c(0.5,0,1,1))
-```
-
-
-
