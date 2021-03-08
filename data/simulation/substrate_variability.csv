@@ -1,0 +1,5 @@
+carbon_source,carbon_conc,nitrogen_source,nitrogen_conc,substrate_TR,substrate_MW
+M_fru,10,M_nh4,10,R_FRUabc,0.18016
+M_succ,10,M_nh4,10,R_SUCCt2r,0.11809
+M_for,10,M_nh4,10,R_FORt,0.04603
+M_fru,10,M_nh4,0.1,R_NH4t,0.018039
