@@ -314,7 +314,7 @@ print(plot_venn)
 
 ### Depletion of selected genes over time
 
-To measure depletion for more than 2 time points gives more confidence that the trends we see are real and consistent over several generations. Another question is to decide how many generations are enough to determine significant differences in fitness. It seems that a second time point such as 16 generations helps to judge if fitness effects are consistent or not. If several time points are available, one can also fit a linear model and compare ANOVA p vlaues and R^2.
+To measure depletion for more than 2 time points gives more confidence that the trends we see are real and consistent over several generations. Another question is to decide how many generations are enough to determine significant differences in fitness. It seems that a second time point such as 16 generations helps to judge if fitness effects are consistent or not. If several time points are available, one can also fit a linear model and compare ANOVA p values and R^2. We can plot a subset of genes, e.g. with the highest differential ftiness between two selected conditions.
 
 
 ```{r, fig.width = 7, fig.height = 6, message = FALSE}

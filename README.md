@@ -10,7 +10,7 @@ This repository contains data processing pipelines for the analysis of the litho
 - genome scale model simulations (FBA/RBA)
 - barcoded transposon knockout library
 
-All care was taken to guarantee scientific accuracy and adhere to good scientific practice in terms of statistics, reproducibility and code documentation. Please report any errors by filing a [github issue](https://github.com/m-jahn/R-notebook-ralstonia-proteome/issues) for this repository.
+All care was taken to guarantee scientific accuracy and adhere to good scientific practice in terms of statistics, reproducibility and code documentation. Please report any errors by filing a [github issue](https://github.com/m-jahn/R-notebook-ralstonia-proteome/issues) for this repository, or contact michael.jahn@scilifelab.se.
 
 ### How to run the pipelines
 
@@ -33,5 +33,9 @@ rmarkdown::render("pipeline.Rmd")
 
 ### Contents
 
+- [_Ralstonia eutropha_ cultivations and physiological data](https://m-jahn.github.io/R-notebook-ralstonia-proteome/Ralstonia_physiology.nb.html), obtained from substrate limited chemostats
+- [_Ralstonia eutropha_ processing of MS proteomics data](https://m-jahn.github.io/R-notebook-ralstonia-proteome/Ralstonia_proteomics.nb.html)
+- [_Ralstonia eutropha_ RBA model, variability analysis](https://m-jahn.github.io/R-notebook-ralstonia-proteome/Ralstonia_variability_analysis.nb.html) based on random sampling of *k_app*
+- [_Ralstonia eutropha_ enzyme abundance and utilization](https://m-jahn.github.io/R-notebook-ralstonia-proteome/Ralstonia_enzyme_saturation.nb.html) by comparison of measured and RBA model predicted enzyme abundance
 - [_Ralstonia eutropha_ gene essentiality analysis (TnSeq)](https://m-jahn.github.io/R-notebook-ralstonia-proteome/TnSeq-essentiality.nb.html), based on transposon insertion frequency
 - [_Ralstonia eutropha_ condition dependent fitness (BarSeq)](https://m-jahn.github.io/R-notebook-ralstonia-proteome/BarSeq-pulse.nb.html), based on transposon mutant depletion/enrichment over time
