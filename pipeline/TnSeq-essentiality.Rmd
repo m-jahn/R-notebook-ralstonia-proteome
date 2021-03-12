@@ -746,65 +746,6 @@ df_essential %>%
   arrange(desc(model_essential), desc(tn_interval))
 ```
 
-## Comparison of essentiality with (change in) protein abundance
-
-Essentiality can also be correlated to the MS protein abundance measurements, or the change in protein abundance over conditions.
-An advanced analysis is also to correlate essentiality or fitness to utilization. First we need to import protein measurements.
-
-```{r}
-load("../data/input/Ralstonia_eutropha.Rdata")
-df_prot <- Ralstonia_eutropha; rm(Ralstonia_eutropha)
-
-df_prot <- df_prot %>% left_join(select(df_essential, locus_tag,
-  insertion_index, insertion_probability, essentiality))
-```
-
-```{r, fig.width = 5.6, fig.height = 3.2}
-boxplot_colorblind <- custom.colorblind()
-boxplot_colorblind$box.rectangle$lwd = 1.5
-boxplot_colorblind$box.umbrella$lwd = 1.5
-
-# protein abundance per essentiality group
-plot_ess_vs_abund <- df_prot %>% group_by(essentiality, locus_tag) %>%
-  summarize(average_mass_g_gDCW = mean(mean_mass_fraction)*0.68) %>%
-  xyplot(log10(average_mass_g_gDCW) ~ essentiality %>% factor(., unique(.)[c(2,1,3)]), .,
-    par.settings = boxplot_colorblind,
-    horizontal = FALSE, do.out = FALSE,
-    xlab = "", ylab = expression("m"[protein]*" [log"[10]*" g gDCW"^-1*"]"),
-    scales = list(alternating = FALSE, x = list(rot = 25, cex = 0.7)),
-    between = list(x = 0.5, y = 0.5),
-    panel = function(x, y, ...) {
-      panel.grid(h = -1, v = -1, col = grey(0.9))
-      panel.violin(x, y, lwd = 0, col = grey(0.6, 0.5), box.width = 0.7, ...)
-      panel.bwplot(x, y, pch = "|", box.width = 0.3, ...)
-      panel.pvalue(x, y, cex = 0.7, fixed_pos = -0.6, verbose = TRUE, ...)
-      panel.text(1:3, -7.3, labels = paste0("n=", table(x)), cex = 0.6)
-    }
-  )
-
-# CV (relative SD) of protein abundance per essentiality group
-plot_ess_vs_change <- df_prot %>% group_by(essentiality, locus_tag) %>%
-  summarize(change_mass_g_gDCW = sd(mean_mass_fraction)/mean(mean_mass_fraction)) %>%
-  xyplot(log10(change_mass_g_gDCW) ~ essentiality %>% factor(., unique(.)[c(2,1,3)]), .,
-    par.settings = boxplot_colorblind,
-    horizontal = FALSE, do.out = FALSE,
-    xlab = "", ylab = expression("CV m"[protein]*" [log"[10]*"]"),
-    scales = list(alternating = FALSE, x = list(rot = 25, cex = 0.7)),
-    between = list(x = 0.5, y = 0.5),
-    panel = function(x, y, ...) {
-      panel.grid(h = -1, v = -1, col = grey(0.9))
-      panel.violin(x, y, lwd = 0, col = grey(0.6, 0.5), box.width = 0.7, ...)
-      panel.bwplot(x, y, pch = "|", box.width = 0.3, ...)
-      panel.pvalue(x, y, cex = 0.7, fixed_pos = 0.9, verbose = TRUE, ...)
-      panel.text(1:3, -1.05, labels = paste0("n=", table(x)), cex = 0.6)
-    }
-  )
-
-print(plot_ess_vs_abund, position = c(0,0,0.5,1), more = TRUE)
-print(plot_ess_vs_change, position = c(0.5,0,1,1))
-```
-
-
 ## Export result tables and figures
 
 Export selected tables.
@@ -812,7 +753,8 @@ Export selected tables.
 ```{r, message = FALSE}
 # export simple table with ternary encoding of essential (2), ambiguous (1), 
 # non-essential genes (0) for mapping with Escher
-df_essential %>% filter(!is.na(model_essential)) %>%
+df_essential %>%
+  #filter(!is.na(model_essential)) %>%
   mutate(essentiality = recode(essentiality, "non-essential" = 0, "ambiguous" = 1, "essential" = 2)) %>%
   select(locus_tag, essentiality) %>%
   write_csv("../data/output/essentiality_escher.csv")
@@ -822,11 +764,5 @@ df_pool_annotated %>% filter(!is.na(barcode), version == "2") %>%
   select(-tn_per_gene, -length_interval, -tn_interval,
     -insertion_index, -insertion_probability) %>%
   write_tsv("../data/output/annotated_pool.tsv")
-```
-
-Export selected figures to `*.svg` image files.
-
-```{r}
-# to be added
 ```
 

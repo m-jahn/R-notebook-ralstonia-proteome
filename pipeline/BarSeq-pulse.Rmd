@@ -314,7 +314,7 @@ print(plot_venn)
 
 ### Depletion of selected genes over time
 
-To measure depletion for more than 2 time points gives more confidence that the trends we see are real and consistent over several generations. Another question is to decide how many generations are enough to determine significant differences in fitness. It seems that a second time point such as 16 generations helps to judge if fitness effects are consistent or not. If several time points are available, one can also fit a linear model and compare ANOVA p values and R^2. We can plot a subset of genes, e.g. with the highest differential ftiness between two selected conditions.
+One question is to decide how many generations are sufficient to determine significant differences in fitness. It seems that a second time point such as 16 generations helps to judge if fitness effects are consistent or not. If several time points are available, one can also fit a linear model and compare ANOVA p values and R^2. Here we plot genes that have a **low fitness in all fructose conditions** i.e. that are essential in fructose minimal medium, but not complete medium (the condition the library was created with). The threshold for consistent depletion is fitness <= -2 in all three conditions after 8 generations.
 
 
 ```{r, fig.width = 7, fig.height = 6, message = FALSE}
@@ -334,11 +334,18 @@ draw_fitness_ts  <- function(data) {
   )
 }
 
-# look at genes with differential fitness
-df_diff_fitness %>% filter(SP_LP) %>%
-  inner_join(df_fitness) %>%
-  filter(Condition != "continuous") %>%
+# look at genes with differential fitness, remove 16 gen continuous time point
+# as it shows low read number / low quality
+df_fitness_comp %>%
+  filter(continuous <= -2 & `short pulse` <= -2 & `long pulse` <= -2) %>%
+  select(locus_tag) %>% inner_join(df_fitness) %>%
+  filter(!(Time == 16 & Condition == "continuous")) %>%
   draw_fitness_ts
+
+# export genes that are essential for growth on fructose (but not LB)
+df_fitness_comp %>%
+  filter(continuous <= -2 & `short pulse` <= -2 & `long pulse` <= -2) %>%
+  write_csv("../data/output/essentiality_fructose.csv")
 ```
 
 ### Heatmap of genes with strong fitness effect
@@ -392,12 +399,6 @@ print(plot_heatmap_1, position = c(0,0,1,0.92), more = TRUE)
 print(plot_heatmap_2, position = c(0.1,0.76,0.92,1))
 ```
 
-```{r, include = FALSE}
-#svg("../figures/figure_fitness_heat.svg", width = 9, height = 3.5, )
-#print(plot_heatmap_4, position = c(0.1,0.76,0.92,1), more = TRUE)
-#print(plot_heatmap_3, position = c(0,0,1,0.92))
-#dev.off()
-```
 
 ### Fitness per functional group
 
@@ -409,7 +410,7 @@ First we come up with a generalized function to compare all genes of a pathway a
 ```{r}
 draw_beeswarm <- function(data) {
   xyplot(Norm_fg_median ~ Condition, data,
-    groups = Condition, col = stdcol[c(5,3,2)],
+    groups = Condition, col = stdcol[c(5, 2)],
     xlab = "", ylab = "fitness", ylim = c(-3.5, 3.5),
     par.settings = custom.colorblind(), as.table = TRUE,
     between = list(x = 0.5, y = 0.5), pch = 19,
@@ -417,7 +418,7 @@ draw_beeswarm <- function(data) {
     panel = function(x, y, ...) {
       panel.grid(h = -1, v = -1, col = grey(0.9))
       panel.abline(h = 0, lwd = 1.5, col = grey(0.7), lty = 2)
-      panel.beeswarm(x, y, bin_y = TRUE, ...)
+      panel.beeswarm(x, y, bin_y = TRUE, spread = 0.13, ...)
     }
   )
 }
@@ -425,33 +426,40 @@ draw_beeswarm <- function(data) {
 
 The cbb mutants for chromosome 2 seem to have a more positive fitness score compared to their counter parts on the pHG1 megaplasmid. However, the four genes with higher fitness show suspicious jumps from 8 to 16 hours. A  look up in the summary table revealed that they have only 1 or 2 mutants quantified per gene, which makes the results less reliable, particularly for the continuous condition with the low read problem at 16 gen. It is better to exclude these mutants. The pHG1 copies have 4,5,6 and 6 mutants respectively.
 
-```{r, fig.width = 5.5, fig.height = 5.5}
+```{r, fig.width = 7.5, fig.height = 2.7}
 # beeswarm plots
 plot_cbb_fitness_bee <- df_fitness_summary %>%
-  filter(Time == 16, str_detect(gene_name, "cbb.|cfx.|cbx.")) %>%
+  filter(Condition != "short pulse", 
+    Time == 16, str_detect(gene_name, "cbb.|cfx.|cbx.")) %>%
+  mutate(Condition = Condition %>% str_replace("long ", "") %>% factor) %>%
   draw_beeswarm
 
 # single time series per gene
 plot_cbb_fitness_select <- df_fitness %>% 
-  filter(str_detect(gene_name, "(cbb|cfx|cbx)[PSLZKGATE]P|cbbR")) %>%
-  mutate(gene_name = case_when(
-    gene_name == "cfxR cbbR H16_B1396" ~ "cbbR (REG)",
-    gene_name == "cfxP cbbPP PHG421" ~ "cbbP (PRUK)",
-    gene_name == "cbxSP cbbS cbbSP cfxSP rbcS PHG426" ~ "cbbS (RBPC)",
-    gene_name == "cbbL2 cbbL cbxLP cfxLP PHG427" ~ "cbbL (RBPC)",
-    gene_name == "cbbZP PHG419" ~ "cbbZ (PGP)",
-    gene_name == "cbbKP PHG417" ~ "cbbK (PGK)",
-    gene_name == "cbbGP PHG418" ~ "cbbG (GAPDH)",
-    gene_name == "cbbAP PHG416" ~ "cbbA (FBA)",
-    gene_name == "cbbTP PHG420" ~ "cbbT (TKT)",
-    gene_name == "cbxXP cfxXP PHG425" ~ "cbbX (RBCA)",
-    gene_name == "cbbEP cfxE PHG423" ~ "cbbE (RPE)"
-  ) %>% factor(., unique(.)[c(1,7,9,10,5,3,4,2,6,8)])) %>%
+  filter(
+    Condition != "short pulse",
+    str_detect(gene_name, "(cbb|cfx|cbx)[PSLZKGATE]P|cbbR")) %>%
+  mutate(
+    Condition = Condition %>% str_replace("long ", "") %>% factor,
+    gene_name = case_when(
+      gene_name == "cfxR cbbR H16_B1396" ~ "cbbR (REG)",
+      gene_name == "cfxP cbbPP PHG421" ~ "cbbP (PRUK)",
+      gene_name == "cbxSP cbbS cbbSP cfxSP rbcS PHG426" ~ "cbbS (RBPC)",
+      gene_name == "cbbL2 cbbL cbxLP cfxLP PHG427" ~ "cbbL (RBPC)",
+      gene_name == "cbbZP PHG419" ~ "cbbZ (PGP)",
+      gene_name == "cbbKP PHG417" ~ "cbbK (PGK)",
+      gene_name == "cbbGP PHG418" ~ "cbbG (GAPDH)",
+      gene_name == "cbbAP PHG416" ~ "cbbA (FBA)",
+      gene_name == "cbbTP PHG420" ~ "cbbT (TKT)",
+      gene_name == "cbxXP cfxXP PHG425" ~ "cbbX (RBCA)",
+      gene_name == "cbbEP cfxE PHG423" ~ "cbbE (RPE)"
+    ) %>% factor(., unique(.)[c(1,7,9,10,5,3,4,2,6,8)])
+  ) %>%
   
   xyplot(Norm_fg ~ factor(Time) | gene_name, .,
-    groups = Condition, as.table = TRUE, col = stdcol[c(5,3,2)],
+    groups = Condition, as.table = TRUE, col = stdcol[c(5,2)],
     par.settings = custom.colorblind(), type = c("p", "l"),
-    xlab = "generations", ylab = "fitness", aspect = 0.9,
+    xlab = "generations", ylab = "fitness",
     ylim = c(-4, 4), layout = c(5, 2),
     pch = 19, between = list(x = 0.5, y = 0.5),
     scales = list(alternating = FALSE), lwd = 2,
@@ -462,35 +470,13 @@ plot_cbb_fitness_select <- df_fitness %>%
     }
   )
 
-print(plot_cbb_fitness_bee, position = c(0.3,0.54,1,1), more = TRUE)
-print(plot_cbb_fitness_select, position = c(0,0,1,0.62))
+print(plot_cbb_fitness_bee, position = c(0,0.03,0.35,1.1), more = TRUE)
+print(plot_cbb_fitness_select, position = c(0.3,0,1.03,1.1))
 ```
+
 ```{r, include = FALSE}
-svg("../figures/figure_fitness_cbb.svg", width = 5.5, height = 5.5)
-print(plot_cbb_fitness_bee, position = c(0.3,0.54,1,1), more = TRUE)
-print(plot_cbb_fitness_select, position = c(0,0,1,0.62))
+svg("../figures/figure_fitness_cbb.svg", width = 7.5, height = 2.7)
+print(plot_cbb_fitness_bee, position = c(0,0.03,0.35,1.1), more = TRUE)
+print(plot_cbb_fitness_select, position = c(0.3,0,1.03,1.1))
 dev.off()
-```
-
-
-### Correlation of fitness and protein abundance
-
-The competition experiment has overlapping conditions with other experiments where protein abundance was determined by MS.
-Particularly, this is the condition `continuous` in the BarSeq data set (t = 8 or 16 generations), that is identical to the condition `FRC 0.1` in MS data (chemostat, fixed growth rate 0.1/h, 0.5 g/L fructose, 1 g/L NH4). We can import the MS proteomics data and see if (change in) fitness is correlated to protein abundance.
-
-```{r}
-load("../data/input/Ralstonia_eutropha.Rdata")
-df_prot <- Ralstonia_eutropha; rm(Ralstonia_eutropha)
-
-# merge the two data sets
-df_prot <- df_prot %>%
-  filter(condition == "FRC 0.1") %>%
-  left_join(select(df_fitness_comp, locus_tag,
-    tstat_median, continuous)) %>%
-  
-  # rename some variables for clarity
-  rename(fitness_barseq = continuous, fitness_tstat = tstat_median) %>%
-  
-  # add category based on fitness threshold
-  mutate(fitness_threshold = if_else(abs(fitness_barseq) >= 2, "fitness >= 2", "fitness < 2"))
 ```
