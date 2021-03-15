@@ -430,13 +430,58 @@ plot_COG_non_utilized <- df_utilization %>%
 print(plot_COG_non_utilized)
 ```
 
+## Gene essentiality for the different utilization categories
+
+Gene essentiality was estimated using a barcoded transposon library (see pipelines [TnSeq-essentiality](https://m-jahn.github.io/R-notebook-ralstonia-proteome/TnSeq-essentiality.nb.html) and [BarSeq-pulse](https://m-jahn.github.io/R-notebook-ralstonia-proteome/BarSeq-pulse.nb.html) in this repository. Briefly, the TnSeq workflow maps transposon mutants to the genome and gene with no or very few transposon insertions are deemed essential (in LB medium). The second data source to evaluate essentiality, the BarSeq workflow, quantifies the fitness of Tn mutants (= depletion or enrichment) in selective conditions. These two estimations for essentiality are combined and then correlated to utilization.
+
+```{r, fig.width = 4, fig.height = 2.5, message = FALSE}
+# import essentiality from TnSeq/BarSeq data
+df_essential <- read_csv("../data/output/essentiality_escher.csv") %>%
+  mutate(essentiality = essentiality %>% recode(
+    `0` = "not essential", `1` = "probably essential", `2` = "essential")) %>%
+  mutate(essentiality = case_when(
+    locus_tag %in% read_csv("../data/output/essentiality_fructose.csv")$locus_tag ~ "essential",
+    TRUE ~ essentiality
+  )) %>%
+  # merge with utilization
+  right_join(df_utilization) %>%
+  mutate(essentiality = replace_na(essentiality, "not essential"))
+
+# optionally display number of essential genes
+df_essential %>% filter(!duplicated(locus_tag)) %>% count(essentiality)
+
+# filter for essential genes only
+plot_essential_bar <- df_essential %>%
+  filter(essentiality == "essential") %>%
+  
+  # determine mass fraction per group
+  group_by(condition, utilization, replicate) %>% 
+  summarize(mass_g_gDCW = sum(mass_g_gDCW, na.rm = TRUE)) %>%
+  mutate(utilization = utilization %>% factor(., unique(.)[c(1,4,3,2)])) %>%
+  
+  # summarize mass per group
+  group_by(condition, utilization, replicate) %>%
+  summarize(mass_g_gDCW = mean(mass_g_gDCW)) %>%
+  
+  # plot
+  xyplot(mass_g_gDCW ~ factor(utilization), .,
+      groups = condition, panel = function(x, y, ...) {
+        panel.barplot(x, y, beside = TRUE, fill_alpha = 0.6, lwd = 0, ...)
+      }
+    )
+
+plot_utilization_bar +
+  as.layer(plot_essential_bar)
+```
+
 
 ## Draft figures and supplemental data
 
 Figure 3: 
 
 ```{r, fig.width = 4.2, fig.height = 6}
-print(plot_utilization_bar, position = c(0.01, 0.59, 1, 1), more = TRUE)
+print(plot_utilization_bar + as.layer(plot_essential_bar),
+  position = c(0.01, 0.59, 1, 1), more = TRUE)
 print(plot_COG_non_utilized, position = c(-0.03, 0, 1, 0.67), more = TRUE)
 grid::grid.text(label = c("A", "B"), x = c(0.03, 0.03), y = c(0.98, 0.62))
 ```
@@ -444,7 +489,8 @@ grid::grid.text(label = c("A", "B"), x = c(0.03, 0.03), y = c(0.98, 0.62))
 ```{r, include = FALSE}
 # silently export figures
 svg("../figures/figure_protein_utilization.svg", width = 4.2, height = 6)
-print(plot_utilization_bar, position = c(0.01, 0.59, 1, 1), more = TRUE)
+print(plot_utilization_bar + as.layer(plot_essential_bar),
+  position = c(0.01, 0.59, 1, 1), more = TRUE)
 print(plot_COG_non_utilized, position = c(-0.03, 0, 1, 0.67), more = TRUE)
 grid::grid.text(label = c("A", "B"), x = c(0.03, 0.03), y = c(0.98, 0.62))
 dev.off()

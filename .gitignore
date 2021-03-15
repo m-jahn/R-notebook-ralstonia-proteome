@@ -42,3 +42,4 @@ vignettes/*.pdf
 archived/*
 data/mapped/*
 data/pool/*.txt
+figures/*.png
