@@ -365,33 +365,40 @@ The simulation and measurement data was prepared and merged by condition in the 
 
 - the most important machine is the ribosome. Prediction and experiment show a very similar increase of ribosome abundance with growth rate (slope of linear model), but the intersection (amount of unused ribosomes at zero growth) is much higher in experiment
 - chaperones show an inverse proportional relationship with growth rate contrary to model prediction. Do (some of?) these proteins have another role than just folding, like stress response?
-- transcription sector is quite stable, however, requires more enzymes than expected. Abundance is underestimated by 1 order of magnitude (5x10^-3 vs 5x10^-4 g/gDCW)
+- transcription sector is quite stable, however, predicted enzyme mass is much lower than measured (underestimated by 1 order of magnitude , 5x10^-3 vs 5x10^-4 g/gDCW)
 - replication sector is heavily underestimated by 3 orders of magnitude (10^-3 vs 10^-6 g/gDCW)
 
-
-The protein allocation for the two low-abundant machines, replication and transcription is very hard to see. We can update the Y-axis limits for this plot and replot it with 10-fold 'zoom'. Abundance of replication machinery increases with growth rate from 0.0010 to a maximum of 0.0015 g/gDCW, an increase by 20-50%. For transcription, abundance increases with growth rate from 0.006 to 0.008 g/gDCW, an increase of 33%. 
+The protein allocation for the two low-abundant machines, replication and transcription is very hard to see. We can update the Y-axis limits for this plot and re-plot it with 10-fold 'zoom'. Abundance of replication machinery increases with growth rate from 0.0010 to a maximum of 0.0015 g/gDCW, an increase by 20-50%. For transcription, abundance increases with growth rate from 0.006 to 0.008 g/gDCW, an increase of 33%. 
 
 ```{r, message = FALSE, fig.width = 8, fig.height = 4}
-plot_machinery <- df_machinery %>%
+df_machinery_util <- df_machinery %>%
+  
+  # remove 1 non-quantified replicate
+  filter(!(substrate == "fructose" & growth_rate == 0.1 & replicate == "R2")) %>%
   
   # summing up protein mass over all conditions
   group_by(machine, substrate, growth_rate, replicate) %>%
   summarize(
-    mass_g_gDCW = sum(mass_g_gDCW, na.rm = TRUE),
-    predicted_mass_g_gDCW = sum(predicted_mass_g_gDCW, na.rm = TRUE)
+    `mass [g/gDCW]` = sum(mass_g_gDCW, na.rm = TRUE),
+    `predicted mass [g/gDCW]` = sum(predicted_mass_g_gDCW, na.rm = TRUE),
+    utilization = `predicted mass [g/gDCW]`/`mass [g/gDCW]`
   ) %>% ungroup %>%
   
   # replace 0 with NA and reorder factors
-  mutate(across(matches("mass_g_gDCW"), ~ na_if(.x, 0))) %>%
-  mutate(machine = machine %>% factor(., unique(.)[c(2,4,3,1)])) %>%
+  mutate(across(matches("mass"), ~ na_if(.x, 0))) %>%
+  mutate(machine = machine %>% factor(., unique(.)[c(2,4,3,1)]))
+
+# plot mass and utilization
+plot_machinery <- #doubleYScale(use.style = FALSE, under = TRUE,
   
-  xyplot(mass_g_gDCW + predicted_mass_g_gDCW ~ factor(growth_rate) | 
-    machine * substrate, .,
+  xyplot(`mass [g/gDCW]` + `predicted mass [g/gDCW]` ~ factor(growth_rate) | 
+    machine * substrate, df_machinery_util,
     par.settings = custom.colorblind(), auto.key = list(columns = 2, cex = 0.7),
     xlab = expression("µ [h"^-1*"]"),
     ylab = expression("m"[protein]*" [g gDCW"^-1*"]"),
-    scales = list(alternating = FALSE, x = list(at = c(2,4))), as.table = TRUE,
-    between = list(x = 0.5, y = 0.5), pch = 19, lwd = 2, 
+    scales = list(alternating = FALSE, x = list(at = c(2,4))),
+    as.table = TRUE, ylim = c(-0.01, 0.12),
+    between = list(x = 0.5, y = 0.5), pch = 19, lwd = 2,
     panel = function(x, y, ...) {
       panel.grid(h = -1, v = -1, col = grey(0.9))
       panel.errbars(x, y, ewidth = 0, ...)
@@ -399,40 +406,47 @@ plot_machinery <- df_machinery %>%
     }, panel.groups = function(x, y, ...) {
       panel.lmline(x, y, ...)
     }
-  ) %>% useOuterStrips
-
-
-print(plot_machinery, position = c(0,0,0.5,1), more = TRUE)
-print(update(plot_machinery, ylim = c(-0.001, 0.012)), position = c(0.5,0,1,1))
+  )#,
+#
+#   xyplot(utilization*100 ~ factor(growth_rate) | 
+#     machine * substrate, df_machinery_util, ylim = c(-10, 120),
+#     panel = function(x, y, ...) {
+#       panel.grid(h = -1, v = -1, col = grey(0.9))
+#       x_mean = unique(x); y_mean = tapply(y, x, mean)
+#       panel.xyarea(c(0, x_mean, 6), c(0, y_mean, tail(y_mean, 1)), 
+#         lty = 0, col = grey(0.6, alpha = 0.5), ...)
+#     }
+#   )
+# )
 ```
-
 
 ### Under-utilization of machinery proteins
 
-Here, we determine the *underutilized machinery fraction* by subtracting the simulated optimal protein allocation from the experimentally measured. This can also lead to negative values if less protein is present than predicted. Utilization is shown as percentage of available (experimentally determined) protein concentration.
+Here, we determine the *underutilized machinery fraction* by taking the ratio of simulated optimal enzyme abundance and experimentally measured abundance, over all four central dogma machines.
 
-```{r, fig.width = 6.0, fig.height = 4.8, message = FALSE}
+```{r, fig.width = 6.5, fig.height = 4.8, message = FALSE}
 plot_machinery_util <- df_machinery %>%
-  
-  # summarizing protein utilization for all machines
-  mutate(machine = "all") %>%
-  group_by(machine, substrate, growth_rate, replicate) %>%
-  summarize(
-    mass = sum(mass_g_gDCW, na.rm = TRUE),
-    predicted_mass = sum(predicted_mass_g_gDCW, na.rm = TRUE),
-    percent_utilization = predicted_mass/(mass)
-  ) %>%
   
   # remove 1 non-quantified replicate
   filter(!(substrate == "fructose" & growth_rate == 0.1 & replicate == "R2")) %>%
   
-  # plot
-  xyplot(percent_utilization ~ factor(growth_rate) | machine * substrate, .,
-    par.settings = custom.colorblind(), ylim = c(0, 1),
-    scales = list(y = list(draw = FALSE), x = list(at = c(2,4))),
+  # summarizing protein utilization for all machines
+  mutate(machine = "machines") %>%
+  group_by(machine, substrate, growth_rate, replicate) %>%
+  summarize(
+    mass = sum(mass_g_gDCW, na.rm = TRUE),
+    predicted_mass = sum(predicted_mass_g_gDCW, na.rm = TRUE),
+    utilization = predicted_mass/(mass)
+  ) %>%
+  
+  # plot. use alternating = 2 to switch axis to right side
+  xyplot(utilization*100 ~ factor(growth_rate) | machine * substrate, .,
+    par.settings = custom.colorblind(), 
+    scales = list(x = list(at = c(2,4)), y = list(alternating = FALSE)),
     xlab = expression("µ [h"^-1*"]"), ylab = "",
+    key = simpleKey("% utilization", cex = 0.7),
     as.table = TRUE, between = list(x = 0.5, y = 0.5),
-    pch = 19, lwd = 2, layout = c(1, 4),
+    pch = 19, lwd = 2, layout = c(1, 4), ylim = c(-10, 120),
     panel = function(x, y, ...) {
       panel.grid(h = -1, v = -1, col = grey(0.9))
       x_mean = unique(x); y_mean = tapply(y, x, mean)
@@ -442,16 +456,17 @@ plot_machinery_util <- df_machinery %>%
     }
   ) %>% useOuterStrips
 
-print(plot_machinery, position = c(0, 0, 0.82, 1.027), more = TRUE)
-print(plot_machinery_util, position = c(0.79, 0, 1, 1.))
-grid::grid.text(c("A", "B"), x = c(0.02, 0.79), y = c(0.97,0.97))
+print(useOuterStrips(plot_machinery), position = c(0, 0, 0.77, 1.027), more = TRUE)
+print(plot_machinery_util, position = c(0.71, 0, 1.02, 1.027))
+grid::grid.text(c("B", "C"), x = c(0.02, 0.75), y = c(0.97,0.97))
 ```
 
+
 ```{r, include = FALSE}
-svg("../figures/figure_machine_util.svg", width = 6.0, height = 4.8)
-print(plot_machinery, position = c(0, 0, 0.82, 1.027), more = TRUE)
-print(plot_machinery_util, position = c(0.79, 0, 1, 1.))
-grid::grid.text(c("A", "B"), x = c(0.02, 0.79), y = c(0.97,0.97))
+svg("../figures/figure_machine_util.svg", width = 6.5, height = 4.8)
+print(useOuterStrips(plot_machinery), position = c(0, 0, 0.77, 1.027), more = TRUE)
+print(plot_machinery_util, position = c(0.71, 0, 1.02, 1.027))
+grid::grid.text(c("B", "C"), x = c(0.02, 0.75), y = c(0.97,0.97))
 dev.off()
 ```
 
@@ -492,10 +507,18 @@ df_util <- df_prot_comp %>%
     utilization > 0.66 ~ "high",
   ) %>% factor(., c("low", "moderate", "high")))
 
-# add essentiality from TnSeq data
+
+# import essentiality from TnSeq/BarSeq data
 df_util <- read_csv("../data/output/essentiality_escher.csv") %>%
+  mutate(essentiality = essentiality %>% recode(
+    `0` = "not essential", `1` = "probably essential", `2` = "essential")) %>%
+  mutate(essentiality = case_when(
+    locus_tag %in% read_csv("../data/output/essentiality_fructose.csv")$locus_tag ~ "essential",
+    TRUE ~ essentiality
+  )) %>%
+  # merge with utilization
   inner_join(df_model_reactions %>% rename(locus_tag = genes)) %>%
-  group_by(reaction_id) %>% summarize(essentiality = max(essentiality) %>%
+    group_by(reaction_id) %>% summarize(essentiality = max(essentiality, na.rm = TRUE) %>%
     recode(`0` = "not essential", `1` = "probably essential", `2` = "essential")) %>%
   right_join(df_util)
 ```
@@ -799,23 +822,32 @@ df_ORA %>% xyplot(-log10(hypgeo_pvalue_OR) ~ factor(substr(model_group_basic, 1,
 Similar to machinery proteins we can also follow the simulation and actual protein abundance of all (detected) enzymes. We can see that some protein abundances nicely follow a growth-rate dependent manner, in line with predictions of higher flux. One such example are Calvin cycle enzymes for formatotrophic growth. However, for the same enzymes we see that no abundance is predicted under heterotrophic conditions because of missing flux through the pathway, but in fact the proteins are expressed in high abundance, often in a growth-rate dependent manner.
 
 ```{r, message = FALSE, fig.width = 6, fig.height = 4.8}
-cbb_selected <- c("PGK", "GAPD", "FBA", "FBP", "TKT1", "PRUK", "RBPC") # "TKT2", "TAh", "RPE", "RPI"
+cbb_selected <- c("PGK", "GAPD", "FBA", "FBP", "TKT1", "PRUK", "RBPC")
+# "TKT2", "TAh", "RPE", "RPI"
 
-# plot Calvin cycle reactions as example
-plot_calvin <- df_prot_comp %>%
+# summary table of selected Calvin cycle genes
+df_calvin <- df_prot_comp %>%
+  
+  # remove 1 non-quantified replicate
+  filter(!(substrate == "fructose" & growth_rate == 0.1 & replicate == "R2")) %>%
   
   # select only subset of reactions
   filter(reaction_id %in% cbb_selected) %>%
   mutate(reaction_id = factor(reaction_id, cbb_selected)) %>%
   rename(`mass [g/gDCW]` = mass_g_gDCW, `predicted mass [g/gDCW]` = predicted_mass_g_gDCW) %>%
+  mutate(utilization = `predicted mass [g/gDCW]`/`mass [g/gDCW]`)
+
+
+# plot mass and utilization
+plot_calvin <- #doubleYScale(use.style = FALSE, under = TRUE,
   
   xyplot(`mass [g/gDCW]` + `predicted mass [g/gDCW]` ~ factor(growth_rate) | 
-    reaction_id * substrate, .,
+    reaction_id * substrate, df_calvin,
     par.settings = custom.colorblind(), auto.key = list(columns = 2, cex = 0.7),
-    xlab = expression("µ [h"^-1*"]"), ylim = c(-0.002, 0.032),
+    xlab = expression("µ [h"^-1*"]"), ylim = c(-0.003, 0.033), #c(-0.002, 0.032),
     ylab = expression("m"[protein]*" [g gDCW"^-1*"]"),
     scales = list(alternating = FALSE, x = list(at = c(2,4)),
-      y = list(at = c(0.01, 0.02, 0.03))), as.table = TRUE,
+      y = list(at = c(0, 0.01, 0.02, 0.03))), as.table = TRUE,
     between = list(x = 0.5, y = 0.5), lwd = 2, 
     panel = function(x, y, ...) {
       panel.grid(h = -1, v = -1, col = grey(0.9))
@@ -824,18 +856,34 @@ plot_calvin <- df_prot_comp %>%
     }, panel.groups = function(x, y, ...) {
       panel.lmline(x, y, ...)
     }
-  ) %>% useOuterStrips
+  )#,
 
-print(plot_calvin)
+#   xyplot(utilization*100 ~ factor(growth_rate) | 
+#     reaction_id * substrate, df_calvin, ylim = c(-15, 165),
+#     panel = function(x, y, ...) {
+#       panel.grid(h = -1, v = -1, col = grey(0.9))
+#       x_mean = unique(x); y_mean = tapply(y, x, mean)
+#       panel.xyarea(c(0, x_mean, 6), c(0, y_mean, tail(y_mean, 1)), 
+#         lty = 0, col = grey(0.6, alpha = 0.5), ...)
+#     }
+#   )
+# )
+
+
+print(useOuterStrips(plot_calvin))
 ```
 
-It is clear from the previous analysis that the cells maintain proteins even if they are not or only marginally utilized. The actually utilized proteome is minimal under strong substrate limitation. The next section will try to quantify the **under-utilization of enzymes** by comparing the minimal protein requirement (simulation) versus experimentally determined protein abundance. It is sufficient to determine the underutilized protein fraction (of all utilized proteins) by subtracting the simulated optimal protein allocation from the experimentally measured. Utilization of the same selection of Calvin cycle enzymes is plotted as in previous section. This plot is not shown here 
+It is clear from the previous analysis that the cells maintain proteins even if they are not or only marginally utilized. The actually utilized proteome is minimal under strong substrate limitation. The next section will try to quantify the **under-utilization of enzymes** by comparing the minimal protein requirement (simulation) versus experimentally determined protein abundance. It is sufficient to determine the underutilized protein fraction (of all utilized proteins).
+
 
 ```{r, message = FALSE, fig.width = 3, fig.height = 4}
 plot_calvin_util <- df_prot_comp %>%
   
   # filter set of enzymes
   filter(reaction_id %in% c("PGK", "GAPD", "FBA", "FBP", "TKT1", "PRUK", "RBPC")) %>%
+  
+  # remove 1 non-quantified replicate
+  filter(!(substrate == "fructose" & growth_rate == 0.1 & replicate == "R2")) %>%
   
   # calculate protein utilization
   group_by(substrate, growth_rate, replicate) %>%
@@ -848,9 +896,6 @@ plot_calvin_util <- df_prot_comp %>%
   # add pseudo enzyme group
   mutate(enzyme = "CBB cycle") %>%
   
-  # remove 1 non-quantified replicate
-  filter(!(substrate == "fructose" & growth_rate == 0.1 & replicate == "R2")) %>%
-  
   # optionally show some summary statistics
   #summarize(across(matches("mass|util"), mean)) %>%
   #mutate(unutil_mass = mass-predicted_mass) %>%
@@ -858,7 +903,7 @@ plot_calvin_util <- df_prot_comp %>%
   
   # plot
   xyplot(percent_utilization*100 ~ factor(growth_rate) | enzyme * substrate, .,
-    par.settings = custom.colorblind(), ylim = c(0, 100),
+    par.settings = custom.colorblind(), ylim = c(-10, 120),
     scales = list(alternating = FALSE, x = list(at = c(2,4))),
     xlab = expression("µ [h"^-1*"]"), ylab = "",
     as.table = TRUE, between = list(x = 0.5, y = 0.5),
@@ -877,7 +922,7 @@ print(plot_calvin_util)
 
 ```{r, include = FALSE}
 svg("../figures/figure_calvin_util.svg", width = 7.5, height = 4.8)
-print(plot_calvin, position = c(0, 0, 0.83, 1.027), more = TRUE)
+print(useOuterStrips(plot_calvin), position = c(0, 0, 0.83, 1.027), more = TRUE)
 print(plot_calvin_util, position = c(0.77, 0, 1.03, 1.027))
 grid::grid.text(c("A", "B"), x = c(0.03, 0.81), y = c(0.97, 0.97))
 dev.off()
@@ -979,12 +1024,10 @@ Since only the initial substrate concentration is constrained, the model could p
 The model seems to predict a high-yield phenotype already. If CO<sub>2</sub> re-fixation would have had an advantage for growth, it might have been detected earlier depending on the protein costs for the respective pathway. Before a final verdict, we can follow the fate of the fixed CO<sub>2</sub> through the metabolism.
 
 
-```{r, fig.width = 5, fig.height = 3.8}
-enzyme_selection <- c("CO2t", "EDD", "CS", "O2t")
-
+```{r, fig.width = 3.8, fig.height = 3.8}
 plot_mixo_enz <- xyplot(abs(value) ~ as.factor(CO2_refixation) | 
-    factor(key, unique(key)), aspect = 0.9,
-  filter(df_mixflux, key %in% enzyme_selection, carbon_conc == 0.655),
+    factor(key, unique(key)), layout = c(2, 2),
+  filter(df_mixflux, key %in% c("CO2t", "EDD", "CS", "O2t"), carbon_conc == 0.655),
   par.settings = custom.colorblind(),
   type = "b", lwd = 2, between = list(x = 0.5, y = 0.5), as.table = TRUE,
   xlab = expression("CO"[2]*" uptake [mmol h"^-1*" gDCW"^-1*"]"),
@@ -999,12 +1042,11 @@ plot_mixo_enz <- xyplot(abs(value) ~ as.factor(CO2_refixation) |
 print(plot_mixo_enz)
 ```
 
-```{r, fig.width = 4.5, fig.height = 5.5, include = FALSE}
-svg("../figures/figure_refixation.svg", width = 4.5, height = 5.5)
-print(plot_mixo_mu[[1]], position = c(0,0.57,0.53,1), more = TRUE)
-print(plot_mixo_mu[[2]], position = c(0.48,0.57,1,1), more = TRUE)
-print(plot_mixo_enz, position = c(0.04, 0, 0.66, 0.62))
-grid::grid.text(c("A", "B", "C"), x = c(0.03, 0.5, 0.03), y = c(0.97, 0.97, 0.57))
+```{r, fig.width = 7.5, fig.height = 3.7, include = FALSE}
+svg("../figures/figure_refixation.svg", width = 7.5, height = 3.7)
+print(plot_mixo_mu[[1]], position = c(0.29,0.42,0.6,1.05), more = TRUE)
+print(plot_mixo_mu[[2]], position = c(0.30,0,0.6,0.63), more = TRUE)
+print(plot_mixo_enz, position = c(0.56,0,1.03,1.05))
 dev.off()
 ```
 
