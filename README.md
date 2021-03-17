@@ -35,7 +35,8 @@ rmarkdown::render("pipeline.Rmd")
 
 - [_Ralstonia eutropha_ cultivations and physiological data](https://m-jahn.github.io/R-notebook-ralstonia-proteome/Ralstonia_physiology.nb.html), obtained from substrate limited chemostats
 - [_Ralstonia eutropha_ processing of MS proteomics data](https://m-jahn.github.io/R-notebook-ralstonia-proteome/Ralstonia_proteomics.nb.html)
-- [_Ralstonia eutropha_ RBA model, variability analysis](https://m-jahn.github.io/R-notebook-ralstonia-proteome/Ralstonia_variability_analysis.nb.html) based on random sampling of *k_app*
+- [_Ralstonia eutropha_ model constraints](https://m-jahn.github.io/R-notebook-ralstonia-proteome/Ralstonia_model_constraints.nb.html), determination of *k<sub>app</sub>* and protein mass per compartment
+- [_Ralstonia eutropha_ RBA model, variability analysis](https://m-jahn.github.io/R-notebook-ralstonia-proteome/Ralstonia_variability_analysis.nb.html) based on random sampling of *k<sub>app</sub>*
 - [_Ralstonia eutropha_ enzyme abundance and utilization](https://m-jahn.github.io/R-notebook-ralstonia-proteome/Ralstonia_enzyme_saturation.nb.html) by comparison of measured and RBA model predicted enzyme abundance
 - [_Ralstonia eutropha_ gene essentiality analysis (TnSeq)](https://m-jahn.github.io/R-notebook-ralstonia-proteome/TnSeq-essentiality.nb.html), based on transposon insertion frequency
 - [_Ralstonia eutropha_ condition dependent fitness (BarSeq)](https://m-jahn.github.io/R-notebook-ralstonia-proteome/BarSeq-pulse.nb.html), based on transposon mutant depletion/enrichment over time
