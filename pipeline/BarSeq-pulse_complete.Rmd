@@ -18,13 +18,14 @@ This R notebook is a bioinformatics pipeline to analyze fitness data obtained fr
 ```{r, message = FALSE}
 # optionally install repos from github
 # devtools::install_github("m-jahn/lattice-tools")
+# devtools::install_github("m-jahn/R-tools")
 library(lattice)
 library(latticeExtra)
 library(latticetools)
 library(tidyverse)
 library(dendextend)
 library(Rtools)
-library(ggraph)
+library(colorspace)
 ```
 
 
@@ -352,23 +353,25 @@ df_fitness_summary %>%
   xyplot(Norm_fg_median ~ Time | Substrate * factor(cluster), .,
     groups = paste(locus_tag, Condition), as.table = TRUE,
     layout = c(3, 2), alpha = 0.6,
-    line_col = stdcol[as.numeric(factor(.[["Condition"]]))],
+    line_col = stdcol[2+as.numeric(factor(.[["Condition"]]))],
     xlab = "generations", ylab = "fitness",
     par.settings = custom.colorblind(), type = c("l"),
     between = list(x = 0.5, y = 0.5),
     scales = list(alternating = FALSE), lwd = 2,
     panel = function(x, y, groups, subscripts, line_col, ...) {
       panel.grid(h = -1, v = -1, col = grey(0.9))
-      panel.text(2, 11, labels = paste("n =", sum(x == 0)))
+      panel.text(2, 11, labels = paste("n =", sum(x == 0)/2))
       panel.xyplot(x, y, groups = groups, subscripts = subscripts,
         col = line_col[subscripts], ...)
       panel.key(c("continuous", "pulse"), corner = c(0.05, 0.5),
-        points = FALSE, lines = TRUE)
+        points = FALSE, lines = TRUE, col = stdcol[3:4])
     }
   )
 ```
 
-What is the identity of the enriched genes? Which one are enriched in several conditions?
+**Strains enriched on fructose**
+
+What is the identity of the enriched genes? Which ones are enriched in several conditions?
 First we identify the mutants highly and specifically enriched in fructose, continuous growth regime.
 
 ```{r, fig.width = 7, fig.height = 4}
@@ -383,6 +386,8 @@ df_fitness_summary %>%
   barchart(factor(name, unique(name)) ~ Norm_fg_median, .,
     par.settings = custom.colorblind(),
     group = paste(Substrate, Condition),
+    col = c(stdcol[1], lighten(stdcol[1], 0.3), stdcol[2],
+      lighten(stdcol[2], 0.3), stdcol[3], lighten(stdcol[3], 0.3)),
     border = "white", stack = TRUE,
     xlab = "cumulative fitness",
     scales = list(y = list(cex = 0.7)),
@@ -393,6 +398,28 @@ df_fitness_summary %>%
     }
   )
 ```
+
+**Mechanisms enabling faster growth on fructose**
+
+The mechanism for increased growth on fructose seems clearly different from the mechanism for faster growth in all other (mainly continuous)  conditions. For the fructose set, several genes are functionally linked suggesting a similar mechanism of action, 
+
+1. Genes `H16_B0517` (alcohol dehydrogenase) and `H16_B1917` (aldehyde dehydrogenase): According to STRING DB, the genes are co-located i.e. either in direct proximity or in the same operon in alpha-, beta- and gamma-proteobacteria, and even cyanobcateria. BioCyc has 17 possible iso-enzymes in *Cupriavidus* for the 2-enzyme pathway "ethanol degradation 1": ethanol --> acetaldehyde --> acetyl-CoA (reverse EtOH fermentation, obtain 1 NADH per reaction) catalyzed by both genes. What could be the mechanism for improved growth/yield on fructose? Chemostats are more yield- than growth selective, this pathway is probably functional and secretes EtOH as a fermentation product; KO of this pathway probably increases yield.
+
+2. Two genes are involved in nitrate respiration/reduction, `PHG269` or narK, and `H16_B2087`, a NarL-family response regulator. NarK is a nitrate transporter, and NarL senses nitrate and then activates transcription of its targets by binding the DNA. According to [this paper on NarL by Ruanto et al., 2020](https://www.ncbi.nlm.nih.gov/pmc/articles/PMC7419079/), "the Regulon DB database [11] for transcription regulation in E. coli lists 26 gene regulatory regions where NarL has a direct effect on transcript initiation, and it functions as an activator at 11 of these".
+
+3. Genes involved in translation/protein folding/sulphur metabolism:
+    - `H16_B2521`, Alpha-ketoglutarate-dependent taurine dioxygenase; taurine is a sulphur carrier
+    - `H16_A2861`, Glutathione S-transferase; Posttranslational modification, protein turnover, chaperones
+    - `H16_A1138`, Thioredoxin; Posttranslational modification, protein turnover, chaperones
+    - `H16_A1336`, yogA/tdcF, putative translation initiation inhibitor,yjg Ffamily; Translation, ribosomal structure and biogenesis
+    - `H16_A2553`, cO, DNA repair protein RecO; Involved in DNA repair and RecF pathway recombination
+
+4. Several other gene products are presumably regulatory proteins:
+    - `16_A0310`, transcriptional regulator, GntR-family; Transcription
+    - `H16_B2215`, HTH lysR-type domain-containing protein; helix turn helix DNA binding motif
+
+**Strains enriched in several conditions**
+
 ```{r, fig.width = 7, fig.height = 6.5}
 df_fitness_summary %>%
   filter(locus_tag %in% names(subset(list_enriched, list_enriched == 4))) %>%
@@ -405,6 +432,8 @@ df_fitness_summary %>%
   barchart(factor(name, unique(name)) ~ Norm_fg_median, .,
     par.settings = custom.colorblind(),
     group = paste(Substrate, Condition),
+    col = c(stdcol[1], lighten(stdcol[1], 0.3), stdcol[2],
+      lighten(stdcol[2], 0.3), stdcol[3], lighten(stdcol[3], 0.3)),
     border = "white", stack = TRUE,
     xlab = "cumulative fitness",
     scales = list(y = list(cex = 0.7)),
@@ -416,11 +445,47 @@ df_fitness_summary %>%
   )
 ```
 
-The mechanism for increased growth on fructose seems clearly different from the mechanism for faster growth in all other (mainly continous conditions).
+**Mechanisms enabling faster growth in several conditions**
+
+The picture for these strains is more clear then for the fructose-enriched strains. 13 out of 27 enriched genes (48%), among them some of the most enriched, are directly involved in hydrogenase activity, i.e. hydrogen oxygenation (hoxA, hoxF, hoxU, hoxX, hypA, hypB, hypC, hypD hypE, hypF, hyaA, hyaB, hupH).
+
+The second theme is enrichment of ptsI (`H16_A0326`) and ptsH (`H16_A0325`), together the entire functional unit of the PTS system, the PEP-dependent sugar phosphotransferase system (sugar PTS). "This major carbohydrate active-transport system catalyzes the phosphorylation of incoming sugar substrates concomitantly with their translocation across the cell membrane. Enzyme I transfers the phosphoryl group from (PEP) to the phosphoryl carrier protein (HPr)."
+
+Other interesting mechanisms: KO of RNA polymerase sigma factor RpoS (`H16_A2373`) seems to have a beneficial effect on steady state growth, as well as other stress related transcription factors like cold shock protein capB (`H16_B2205`), and scoF (`H16_B0002`).
 
 ```{r}
-
+filter(df_ref, locus_tag %in% (names(subset(list_enriched, list_enriched == 4)))) %>% pull(eggNOG_name)
 ```
+
+
+**Sanity checks**
+
+All above results are based on fitness score, which is not much more than a normalized log2 fold change of read count over time.
+We can compare if the mutants with extremely high fitness scores are also the ones that are super-abundant at the final time point, ie.e. have an average read count of >= 500,000. In fact, only 3 genes have such an extreme maximum read count, but 9 have more than 100,000 reads.
+
+```{r}
+df_fitness %>% filter(Time == 16, locus_tag %in% (subset(list_enriched, list_enriched %in% c(3,4)) %>% names)) %>%
+  group_by(locus_tag) %>% summarize(max_counts = max(Counts), max_fitness = max(Norm_fg)) %>%
+  arrange(desc(max_counts))
+```
+
+On the other hand, we can check which genes have an extremely high read count (>= 500,000 in *any* condition) and see if this correlates with high fitness score. It does partly. 3 out of 7 high abundant genes enrich extremely over time. The other enrich too, but only 2^1 = 2 to 2^3.5 = 11 times. These non-enriching super-abundant mutants are:
+
+  - `H16_A0774` - cphA, Cyanophycin synthase. Supposed mechanism: enriches in LB medium as it does not turn Asp
+    into cyanophycin. No benefit on minimal medium.
+  - `H16_B2570` - fecA, Outer membrane receptor for Fe(III). Supposed mechanism: regulator activity together with fecR, but also 
+    transmembrane transporter for siderophores. KO reduces sensitivty to excess iron??
+  - `H16_A3145` - Conserved protein/domain typically associated with flavoprotein oxygenases, DIM6/NTAB family. 
+    Supposed mechanism: unknown.
+
+```{r}
+df_fitness %>% filter(Time == 16, Counts > 5*10^5) %>%
+  group_by(locus_tag) %>% summarize(max_counts = max(Counts), max_fitness = max(Norm_fg)) %>%
+  arrange(desc(max_counts))
+```
+
+
+
 
 ### Depletion of selected genes over time
 
