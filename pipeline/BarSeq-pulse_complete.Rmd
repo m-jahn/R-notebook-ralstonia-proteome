@@ -333,62 +333,34 @@ plot(color_branches(
   groupLabels = TRUE,
   col = stdcol[1:7]
 ))
-```
 
-### Identity of super-spreader mutants
-
-One of the most puzzling results is the appearance (very?) fast growing mutants in some conditions. These mutants quickly enrich over only 16 generations to a volume of up to 20% of all library mutants, they "take over the culture". This phenomenon was not observed previously in experiments with the *Synechocystis* sp. PCC6803 CRISPRi repression library (Yao et al., Nature Communications, 2020). This library was based on the same principle of depletion and enrichment of mutants depending on the associated fitness contribution of that mutant.
-
-To identify the most abundant mutants, we can select the genes from cluster 3 and 4 (most enriched mutants). These mutants show a growth regime and substrate dependent pattern, as detailed in the plot below.
-
-```{r, fig.width = 6.5, fig.height = 4.5}
+# collect names of enriched/depleted genes
 list_enriched <- vegan::cutreeord(mat_cluster, k = 7)
 list_enriched %>% table
-
-df_fitness_summary %>%
-  filter(locus_tag %in% names(list_enriched)) %>%
-  mutate(cluster = list_enriched[locus_tag] %>% unname) %>%
-  filter(cluster %in% c(3,4)) %>%
-
-  xyplot(Norm_fg_median ~ Time | Substrate * factor(cluster), .,
-    groups = paste(locus_tag, Condition), as.table = TRUE,
-    layout = c(3, 2), alpha = 0.6,
-    line_col = stdcol[2+as.numeric(factor(.[["Condition"]]))],
-    xlab = "generations", ylab = "fitness",
-    par.settings = custom.colorblind(), type = c("l"),
-    between = list(x = 0.5, y = 0.5),
-    scales = list(alternating = FALSE), lwd = 2,
-    panel = function(x, y, groups, subscripts, line_col, ...) {
-      panel.grid(h = -1, v = -1, col = grey(0.9))
-      panel.text(2, 11, labels = paste("n =", sum(x == 0)/2))
-      panel.xyplot(x, y, groups = groups, subscripts = subscripts,
-        col = line_col[subscripts], ...)
-      panel.key(c("continuous", "pulse"), corner = c(0.05, 0.5),
-        points = FALSE, lines = TRUE, col = stdcol[3:4])
-    }
-  )
 ```
 
-**Strains enriched on fructose**
+### Enrichment of mutants over time (increased fitness)
 
-What is the identity of the enriched genes? Which ones are enriched in several conditions?
-First we identify the mutants highly and specifically enriched in fructose, continuous growth regime.
+One of the most puzzling results is the appearance of (very) fast growing mutants in some conditions. These mutants quickly enrich over only 16 generations to a volume of up to 20% of all library mutants, they "take over the culture". This phenomenon was not observed previously in experiments with the *Synechocystis* sp. PCC6803 CRISPRi repression library (Yao et al., Nature Communications, 2020). The CRISPRi library is based on the same principle of depletion and enrichment of mutants depending on the associated fitness.
 
-```{r, fig.width = 7, fig.height = 4}
-df_fitness_summary %>%
-  filter(locus_tag %in% names(subset(list_enriched, list_enriched == 3))) %>%
-  filter(Time == 16) %>%
-  group_by(locus_tag) %>% mutate(sum_fitness = sum(Norm_fg_median)) %>%
+```{r, echo = FALSE}
+# color vector for conditions
+subs_col <- c(stdcol[1], lighten(stdcol[1], 0.3), stdcol[2],
+  lighten(stdcol[2], 0.3), stdcol[3], lighten(stdcol[3], 0.3))
+
+# generalized function for barplots
+barchart_fitness <- function(data) {
+  # sort by cumulative fitness
+  data %>% group_by(locus_tag) %>% 
+  mutate(sum_fitness = sum(Norm_fg_median)) %>%
   arrange(sum_fitness) %>%
   mutate(name = paste0(locus_tag, " | ", eggNOG_name, " | ", 
     substr(eggNOG_description, 1, 40))) %>%
   
   barchart(factor(name, unique(name)) ~ Norm_fg_median, .,
-    par.settings = custom.colorblind(),
     group = paste(Substrate, Condition),
-    col = c(stdcol[1], lighten(stdcol[1], 0.3), stdcol[2],
-      lighten(stdcol[2], 0.3), stdcol[3], lighten(stdcol[3], 0.3)),
-    border = "white", stack = TRUE,
+    par.settings = custom.colorblind(),
+    col = subs_col, border = "white", stack = TRUE,
     xlab = "cumulative fitness",
     scales = list(y = list(cex = 0.7)),
     panel = function(x, y, ...) {
@@ -397,6 +369,41 @@ df_fitness_summary %>%
       panel.key(..., points = FALSE, cex = 0.6, corner = c(0.97, 0.03))
     }
   )
+}
+
+linechart_fitness <- function(data) {
+  xyplot(Norm_fg_median ~ Time | locus_tag, data,
+    groups = paste(Substrate, Condition), as.table = TRUE,
+    par.settings = custom.colorblind(), type = c("l"),
+    col = subs_col, lwd = 2.5,
+    layout = c(5, ceiling(length(unique(data$locus_tag))/5)),
+    xlab = "generations", ylab = "fitness",
+    between = list(x = 0.5, y = 0.5),
+    scales = list(alternating = FALSE),
+    panel = function(x, y, ...) {
+      panel.grid(h = -1, v = -1, col = grey(0.9))
+      panel.xyplot(x, y, ...)
+    }
+  )
+}
+```
+
+#### Strains enriched on fructose
+
+What is the identity of the enriched genes? Which ones are enriched in several conditions? First we identify the mutants highly and specifically enriched on fructose, predominantly in the continuous growth regime.
+
+
+```{r, fig.width = 10, fig.height = 4.5}
+df_fitness_summary %>%
+  filter(locus_tag %in% names(subset(list_enriched, list_enriched == 3))) %>%
+  filter(Time == 16) %>%
+  barchart_fitness() %>%
+  print(position = c(0,0,0.6,1), more = TRUE)
+
+df_fitness_summary %>%
+  filter(locus_tag %in% names(subset(list_enriched, list_enriched == 3))) %>%
+  linechart_fitness() %>%
+  print(position = c(0.58,0,1,1))
 ```
 
 **Mechanisms enabling faster growth on fructose**
@@ -405,7 +412,7 @@ The mechanism for increased growth on fructose seems clearly different from the 
 
 1. Genes `H16_B0517` (alcohol dehydrogenase) and `H16_B1917` (aldehyde dehydrogenase): According to STRING DB, the genes are co-located i.e. either in direct proximity or in the same operon in alpha-, beta- and gamma-proteobacteria, and even cyanobcateria. BioCyc has 17 possible iso-enzymes in *Cupriavidus* for the 2-enzyme pathway "ethanol degradation 1": ethanol --> acetaldehyde --> acetyl-CoA (reverse EtOH fermentation, obtain 1 NADH per reaction) catalyzed by both genes. What could be the mechanism for improved growth/yield on fructose? Chemostats are more yield- than growth selective, this pathway is probably functional and secretes EtOH as a fermentation product; KO of this pathway probably increases yield.
 
-2. Two genes are involved in nitrate respiration/reduction, `PHG269` or narK, and `H16_B2087`, a NarL-family response regulator. NarK is a nitrate transporter, and NarL senses nitrate and then activates transcription of its targets by binding the DNA. According to [this paper on NarL by Ruanto et al., 2020](https://www.ncbi.nlm.nih.gov/pmc/articles/PMC7419079/), "the Regulon DB database [11] for transcription regulation in E. coli lists 26 gene regulatory regions where NarL has a direct effect on transcript initiation, and it functions as an activator at 11 of these".
+2. Two genes are involved in nitrate respiration/reduction, `PHG269` or narK, and `H16_B2087`, a NarL-family response regulator. NarK is a nitrate transporter, and NarL senses nitrate and then activates transcription of its targets by binding the DNA. According to [this paper on NarL by Ruanto et al., 2020](https://www.ncbi.nlm.nih.gov/pmc/articles/PMC7419079/), "the Regulon DB database [11] for transcription regulation in E. coli lists 26 gene regulatory regions where NarL has a direct effect on transcript initiation, and it functions as an activator at 11 of these". It is not clear what effect the KO of nitrate transport could have on growth or yield, nitrate is not part of the medium.
 
 3. Genes involved in translation/protein folding/sulphur metabolism:
     - `H16_B2521`, Alpha-ketoglutarate-dependent taurine dioxygenase; taurine is a sulphur carrier
@@ -418,50 +425,100 @@ The mechanism for increased growth on fructose seems clearly different from the 
     - `16_A0310`, transcriptional regulator, GntR-family; Transcription
     - `H16_B2215`, HTH lysR-type domain-containing protein; helix turn helix DNA binding motif
 
-**Strains enriched in several conditions**
+#### Strains enriched on formate
 
-```{r, fig.width = 7, fig.height = 6.5}
+Here, the obvious question with biotechnological importance is to find mutants with higher (specific) tolerance to formate, regardless if it's pulsed or continuously supplied. We explicitly exclude mutants beneficial for other growth conditions too, which are dealt with in the next section. The clustering results of the previous section could not identify formate-specific mutants enriched after 8 generations. We need to lower the filter threshold to detect genes that have a more subtle enrichment (fitness >= 2 for formate, and <= 1 for all other conditions) after 16 generations.
+
+```{r, fig.width = 10, fig.height = 4.5}
+list_fitness_formate <- df_fitness_summary %>%
+  group_by(locus_tag, Substrate, Time) %>%
+  mutate(formate_hit = case_when(
+    Substrate == "formate" & max(Norm_fg_median) >= 2 ~ TRUE,
+    Substrate != "formate" & max(Norm_fg_median) <= 1 ~ TRUE,
+    TRUE ~ FALSE)
+  ) %>% group_by(locus_tag, Time) %>%
+  filter(all(formate_hit), n() == 6) %>% 
+  pull(locus_tag) %>% unique
+
+df_fitness_summary %>%
+  filter(Time == 16, locus_tag %in% list_fitness_formate) %>%
+  barchart_fitness() %>%
+  print(position = c(0,0,0.6,1), more = TRUE)
+
+df_fitness_summary %>%
+  filter(locus_tag %in% list_fitness_formate) %>%
+  linechart_fitness() %>%
+  print(position = c(0.58,0,1,1))
+```
+
+**Mechanisms enabling faster growth on formate**
+
+According to STRING DB there are no obvious relationships between these genes except for the pair `PHG388` (pcaI, Oxoadipate CoA transferase alpha subunit) and `H16_B1583` (pcaD, 3-Oxoadipate enol-lactone hydrolase). Both genes are part of the catechol degradation pathway that is itself a larger part of benzene degradation. The gene products catalyze two sequential reactions 3-oxoadipate-enol-lactone --> 3-oxoadipate (pcaD) --> 3-oxoadipyl-CoA (pcaI). The next reaction catalyzed by four isoenzymes makes succinyl-CoA which ends up in the Citrate cycle. How the KO of this pathway would improve tolerance to formate is unclear.
+
+#### Strains enriched on succinate
+
+This is similar to the analysis above for formate, with the exception that many mutants associated with higher fitness in succinate conditions enrich only after 16 generations, and only in the continuous regime. This seems be an artifact of read compression. We therefore use the same thresholds as for formate (fitness >= 2 for succinate, and <= 1 for all other conditions) but after 8 instead of 16 generations.
+
+```{r, fig.width = 10, fig.height = 4.5}
+list_fitness_succinate <- df_fitness_summary %>%
+  filter(Time == 8) %>%
+  group_by(locus_tag, Substrate) %>%
+  mutate(succinate_hit = case_when(
+    Substrate == "succinate" & max(Norm_fg_median) >= 2 ~ TRUE,
+    Substrate != "succinate" & max(Norm_fg_median) <= 1 ~ TRUE,
+    TRUE ~ FALSE)
+  ) %>% group_by(locus_tag) %>%
+  filter(all(succinate_hit), n() == 6, locus_tag != "H16_A2912") %>% 
+  pull(locus_tag) %>% unique
+
+df_fitness_summary %>%
+  filter(Time == 16, locus_tag %in% list_fitness_succinate) %>%
+  barchart_fitness() %>%
+  print(position = c(0,0,0.6,1), more = TRUE)
+
+df_fitness_summary %>%
+  filter(locus_tag %in% list_fitness_succinate) %>%
+  linechart_fitness() %>%
+  print(position = c(0.58,0,1,1))
+```
+
+**Mechanisms enabling faster growth on succinate**
+
+A group of five highly related genes shows significant enrichment in (continuous) succinate: `H16_2096` (dppA1), `H16_A2406` (dppD2), `H16_A2407` (dppC2), `H16_A2408` (dppB2), and `H16_A2409`, dppA2. Alternative names are yejABCDE. All of these proteins are part of an ABC transporter of the PepT family. Quote from PFAM about this type of protein/domain: "All characterised members appear to be involved in the transport of oligopeptides or dipeptides. Some are important for sporulation or antibiotic resistance. Some dipeptide transporters also act on the heme precursor delta-aminolevulinic acid.
+The enrichment seems to be highly reproducible: each of these genes has 7 to 15 different insertion mutants, all showing the same average pattern. At least two more genes are also involved in (amino acid?) transport, `H16_A3284` and `H16_A2521`. The latter one is a "D-amino acid transferase (D-AAT), required by bacteria to catalyse the synthesis of D-glutamic acid and D-alanine" (PFAM).
+Supposed mechanism of enrichment: Growth on succinate could lead to a shortage/imbalance of certain amino acids, and investment in uptake might give a growth advantage.
+
+#### Strains enriched in several conditions
+
+```{r, fig.width = 10, fig.height = 6.5}
 df_fitness_summary %>%
   filter(locus_tag %in% names(subset(list_enriched, list_enriched == 4))) %>%
   filter(Time == 16) %>%
-  group_by(locus_tag) %>% mutate(sum_fitness = sum(Norm_fg_median)) %>%
-  arrange(sum_fitness) %>%
-  mutate(name = paste0(locus_tag, " | ", eggNOG_name, " | ", 
-    substr(eggNOG_description, 1, 40))) %>%
-  
-  barchart(factor(name, unique(name)) ~ Norm_fg_median, .,
-    par.settings = custom.colorblind(),
-    group = paste(Substrate, Condition),
-    col = c(stdcol[1], lighten(stdcol[1], 0.3), stdcol[2],
-      lighten(stdcol[2], 0.3), stdcol[3], lighten(stdcol[3], 0.3)),
-    border = "white", stack = TRUE,
-    xlab = "cumulative fitness",
-    scales = list(y = list(cex = 0.7)),
-    panel = function(x, y, ...) {
-      panel.grid(h = -1, v = -1, col = grey(0.9))
-      panel.barchart(x, y, ...)
-      panel.key(..., points = FALSE, cex = 0.6, corner = c(0.97, 0.03))
-    }
-  )
+  barchart_fitness() %>%
+  print(position = c(0,0,0.6,1), more = TRUE)
+
+df_fitness_summary %>%
+  filter(locus_tag %in% names(subset(list_enriched, list_enriched == 4))) %>%
+  linechart_fitness() %>%
+  print(position = c(0.58,0,1,1))
 ```
 
 **Mechanisms enabling faster growth in several conditions**
 
-The picture for these strains is more clear then for the fructose-enriched strains. 13 out of 27 enriched genes (48%), among them some of the most enriched, are directly involved in hydrogenase activity, i.e. hydrogen oxygenation (hoxA, hoxF, hoxU, hoxX, hypA, hypB, hypC, hypD hypE, hypF, hyaA, hyaB, hupH).
+The picture for these strains is more clear then for the fructose-enriched strains. 13 out of 27 enriched genes (48%), among them some of the most enriched, are directly involved in hydrogenase activity, i.e. hydrogen oxygenation (hoxA, hoxF, hoxU, hoxX, hypA, hypB, hypC, hypD hypE, hypF, hyaA, hyaB, hupH). The mechanism of enabling faster growth by KO of hydrogenases is unknown.
 
 The second theme is enrichment of ptsI (`H16_A0326`) and ptsH (`H16_A0325`), together the entire functional unit of the PTS system, the PEP-dependent sugar phosphotransferase system (sugar PTS). "This major carbohydrate active-transport system catalyzes the phosphorylation of incoming sugar substrates concomitantly with their translocation across the cell membrane. Enzyme I transfers the phosphoryl group from (PEP) to the phosphoryl carrier protein (HPr)."
+Why does the KO of PTS system provides a growth benefit in *in all conditions* with almost equal contribution? Must be related to energy metabolism, because neither fructose (ABC transporter), succinate and def not formate are transported via a PTS.
 
 Other interesting mechanisms: KO of RNA polymerase sigma factor RpoS (`H16_A2373`) seems to have a beneficial effect on steady state growth, as well as other stress related transcription factors like cold shock protein capB (`H16_B2205`), and scoF (`H16_B0002`).
 
-```{r}
-filter(df_ref, locus_tag %in% (names(subset(list_enriched, list_enriched == 4)))) %>% pull(eggNOG_name)
-```
+The gene `H16_B2043` is by far most abundant (by reads) and most enriched (by fitness) single mutant in almost all conditions. What is the mechanism? There is almost nothing known about this gene except that it probably has cyclic-guanylate-specific phosphodiesterase activity. This enzyme has, according to PFAM, two domains, the diguanylate cyclase (GGDEF) and the EAL domain. The first one synthesizes cyclic di-GMP [Ryjenkov et al., J Bact, 2005](https://www.ncbi.nlm.nih.gov/pmc/articles/PMC1064016/). The second domain can act as phosphodiesterase and cleave cyclic cAMP or cGMP. Both compounds play a role in signaling, cAMP for example as the hormone in catabolite repression. According to the discussion in the linked paper, "Mutations in the GGDEF domain proteins or overexpression of such proteins affect exopolysaccharide synthesis [...] and formation of biofilms. In C. crescentus, flagellum ejection, which is required for the switch from motile to sessile lifestyle, is impaired in a mutated GGDEF domain". The underlying mechanism could be disrupted biofilm formation, higher flagellum activity, and thus non-settling phenotype in the bioreactor. Alternatively the mutation affects cAMP formation and disrupts or enhances catabolite repression (more likely that disrupted catabolite repression is beneficial).
 
 
-**Sanity checks**
+#### Sanity checks
 
 All above results are based on fitness score, which is not much more than a normalized log2 fold change of read count over time.
-We can compare if the mutants with extremely high fitness scores are also the ones that are super-abundant at the final time point, ie.e. have an average read count of >= 500,000. In fact, only 3 genes have such an extreme maximum read count, but 9 have more than 100,000 reads.
+We can compare if the mutants with extremely high fitness scores are also the ones that are super-abundant at the final time point, ie.e. have an average read count of >= 500,000 after 16 generations. In fact, only 3 genes have such an extreme read count, but 9 have more than 100,000 reads.
 
 ```{r}
 df_fitness %>% filter(Time == 16, locus_tag %in% (subset(list_enriched, list_enriched %in% c(3,4)) %>% names)) %>%
@@ -469,7 +526,7 @@ df_fitness %>% filter(Time == 16, locus_tag %in% (subset(list_enriched, list_enr
   arrange(desc(max_counts))
 ```
 
-On the other hand, we can check which genes have an extremely high read count (>= 500,000 in *any* condition) and see if this correlates with high fitness score. It does partly. 3 out of 7 high abundant genes enrich extremely over time. The other enrich too, but only 2^1 = 2 to 2^3.5 = 11 times. These non-enriching super-abundant mutants are:
+On the other hand, we can check which genes have an extremely high read count (>= 500,000 in *any* condition) and see if this correlates with high fitness score. It does partly. 3 out of 7 highly abundant gene mutants enrich extremely over time. The other enrich too, but only 2^1 = 2 to 2^3.5 = 11 times. These non-enriching super-abundant mutants are:
 
   - `H16_A0774` - cphA, Cyanophycin synthase. Supposed mechanism: enriches in LB medium as it does not turn Asp
     into cyanophycin. No benefit on minimal medium.
@@ -485,44 +542,66 @@ df_fitness %>% filter(Time == 16, Counts > 5*10^5) %>%
 ```
 
 
+### Depletion of mutants over time (reduced fitness)
+
+Several genes/mutants are depleted over time depending on growth condition. Most interesting in this context are cluster 1 and 2, depletion only on formate, or in all conditions. Not surpirsingly, formate-specific genes are highly enriched for e.g. formate dehydrogenase.
 
 
-### Depletion of selected genes over time
+```{r, fig.width = 10, fig.height = 6.5}
+df_fitness_summary %>%
+  filter(locus_tag %in% names(subset(list_enriched, list_enriched == 1))) %>%
+  filter(Time == 16) %>%
+  barchart_fitness() %>%
+  print(position = c(0,0,0.6,1), more = TRUE)
 
-One question is to decide how many generations are sufficient to determine significant differences in fitness. It seems that a second time point such as 16 generations helps to judge if fitness effects are consistent or not. If several time points are available, one can also fit a linear model and compare ANOVA p values and R^2. Here we plot genes that have a **low fitness in all fructose conditions** i.e. that are essential in fructose minimal medium, but not complete medium (the condition the library was created with). The threshold for consistent depletion is fitness <= -2 in all three conditions after 8 generations.
+df_fitness_summary %>%
+  filter(locus_tag %in% names(subset(list_enriched, list_enriched == 1))) %>%
+  linechart_fitness() %>%
+  print(position = c(0.58,0,1,1))
+```
+
+What is the role of formate-essential genes? Are there patterns that emerge? We can submit the depleted gene list to STRING DB and retrieve a possible network of interactions.
+
+```{r, message = FALSE}
+library(ggraph)
+library(tidygraph)
+
+# separate IDs by this string: "%0d"
+# species/taxon ID for Cupriavidus necator H16: 381666 (see https://string-db.org/cgi/organisms)
+list_formate_depleted <- paste(names(subset(list_enriched, list_enriched == 1)), collapse = "%0d")
+df_str_formate_depl <- read_tsv(paste0("https://string-db.org/api/tsv/network?identifiers=", 
+  list_formate_depleted, "&species=381666&required_score=400")) %>%
+  mutate(across(matches("stringId"), function(x) gsub("381666.", "", x)))
+
+# construct a new graph object from of pathway nodes/edges
+# expected network:  number of nodes: = 34, number of edges = 74
+as_tbl_graph(df_str_formate_depl)
+
+```
+
+Plot the graph.
+
+```{r, fig.width = 10, fig.height = 8}
+# the layout argument takes one of: 'nicely', 'star', 'circle', 'gem', 'dh', 
+# 'randomly', 'fr', 'kk', 'drl', 'lgl', 'graphopt', 'grid', 'mds'
+reh_pathways_plot <- ggraph(reh_pathways_igraph, layout = 'dh') +
+geom_edge_link(colour = grey(0.5)) + 
+geom_node_point(aes(colour = "orange", size = interactions)) +
+geom_node_text(aes(label = pathway_map_short %>% gsub(" ", "\n", .)), repel = TRUE, col = grey(0.5), size = 2) +
+theme_graph(background = grey(0.95), foreground = grey(0.5),
+  plot_margin = margin(10, 10, 10, 10))
+print(reh_pathways_plot)
+```
 
 
-```{r, fig.width = 7, fig.height = 6, message = FALSE}
-# general plotting function for fitness as time series
-draw_fitness_ts  <- function(data) {
-  xyplot(Norm_fg ~ factor(Time) | str_extract(gene_name, "[a-zA-Z0-9_]+"), data,
-    groups = Condition, as.table = TRUE, col = stdcol[c(5,3,2)],
-    par.settings = custom.colorblind(), type = c("p", "l"),
-    xlab = "generations", ylab = "fitness",
-    pch = 19, between = list(x = 0.5, y = 0.5),
-    scales = list(alternating = FALSE), lwd = 2,
-    panel = function(x, y, ...) {
-      panel.grid(h = -1, v = -1, col = grey(0.9))
-      panel.errbars(x, y, ewidth = 0, ...)
-      panel.key(...)
-    }
-  )
-}
+One question is to decide how many generations are sufficient to determine significant differences in fitness. It seems that several time points help to judge if fitness effects are consistent or not. The downside is that the 16 generation time point that was chosen can already be too long, leading to disappearance of interesting mutants from the library.
 
-# look at genes with differential fitness, remove 16 gen continuous time point
-# as it shows low read number / low quality
-df_fitness_comp %>%
-  filter(continuous <= -2 & `short pulse` <= -2 & `long pulse` <= -2) %>%
-  select(locus_tag) %>% inner_join(df_fitness) %>%
-  filter(!(Time == 16 & Condition == "continuous")) %>%
-  draw_fitness_ts
-
+```{r, include = FALSE}
 # export genes that are essential for growth on fructose (but not LB)
 df_fitness_comp %>%
   filter(continuous <= -2 & `short pulse` <= -2 & `long pulse` <= -2) %>%
   write_csv("../data/output/essentiality_fructose.csv")
 ```
-
 
 ### Fitness per functional group
 
