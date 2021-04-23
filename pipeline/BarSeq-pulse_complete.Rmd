@@ -560,7 +560,7 @@ df_fitness_summary %>%
   print(position = c(0.58,0,1,1))
 ```
 
-What is the role of formate-essential genes? Are there patterns that emerge? We can submit the depleted gene list to STRING DB and retrieve a possible network of interactions.
+What is the role of formate-essential genes? Are there patterns that emerge? We can submit the depleted gene list to STRING DB and retrieve a possible network of interactions. The network shows immediately that there are many high-scoring interactions between the genes, particularly 
 
 ```{r, message = FALSE}
 library(ggraph)
@@ -569,38 +569,36 @@ library(tidygraph)
 # separate IDs by this string: "%0d"
 # species/taxon ID for Cupriavidus necator H16: 381666 (see https://string-db.org/cgi/organisms)
 list_formate_depleted <- paste(names(subset(list_enriched, list_enriched == 1)), collapse = "%0d")
-df_str_formate_depl <- read_tsv(paste0("https://string-db.org/api/tsv/network?identifiers=", 
-  list_formate_depleted, "&species=381666&required_score=400")) %>%
-  mutate(across(matches("stringId"), function(x) gsub("381666.", "", x)))
-
-# construct a new graph object from of pathway nodes/edges
-# expected network:  number of nodes: = 34, number of edges = 74
-as_tbl_graph(df_str_formate_depl)
-
+df_formate_depl <- read_tsv(paste0("https://string-db.org/api/tsv/network?identifiers=", 
+  list_formate_depleted, "&species=381666&required_score=0000")) %>%
+  mutate(across(matches("stringId"), function(x) gsub("381666.", "", x))) %>%
+  # construct a new graph object from of pathway nodes/edges
+  as_tbl_graph() %>%
+  left_join(rename(df_ref, name = locus_tag))
 ```
 
-Plot the graph.
+Plot the network graph.
 
-```{r, fig.width = 10, fig.height = 8}
+```{r, fig.width = 7, fig.height = 4.8}
 # the layout argument takes one of: 'nicely', 'star', 'circle', 'gem', 'dh', 
 # 'randomly', 'fr', 'kk', 'drl', 'lgl', 'graphopt', 'grid', 'mds'
-reh_pathways_plot <- ggraph(reh_pathways_igraph, layout = 'dh') +
-geom_edge_link(colour = grey(0.5)) + 
-geom_node_point(aes(colour = "orange", size = interactions)) +
-geom_node_text(aes(label = pathway_map_short %>% gsub(" ", "\n", .)), repel = TRUE, col = grey(0.5), size = 2) +
-theme_graph(background = grey(0.95), foreground = grey(0.5),
-  plot_margin = margin(10, 10, 10, 10))
-print(reh_pathways_plot)
+df_formate_depl %>% activate(edges) %>% filter(score >= 0.4) %>%
+  ggraph(layout = 'linear', circular = TRUE) +
+  geom_edge_arc(colour = grey(0.6, 0.5), aes(width = score)) + 
+  geom_node_point(aes(colour = Process), size = 5) +
+  geom_node_text(nudge_y = 0.1, aes(label = eggNOG_name, colour = Process)) +
+  scale_edge_width(range = c(0.2, 2)) +
+  theme_graph(background = "white", foreground = grey(0.5),
+    plot_margin = margin(10, 10, 10, 10))
 ```
-
 
 One question is to decide how many generations are sufficient to determine significant differences in fitness. It seems that several time points help to judge if fitness effects are consistent or not. The downside is that the 16 generation time point that was chosen can already be too long, leading to disappearance of interesting mutants from the library.
 
 ```{r, include = FALSE}
 # export genes that are essential for growth on fructose (but not LB)
-df_fitness_comp %>%
-  filter(continuous <= -2 & `short pulse` <= -2 & `long pulse` <= -2) %>%
-  write_csv("../data/output/essentiality_fructose.csv")
+# df_fitness_comp %>%
+#   filter(continuous <= -2 & `short pulse` <= -2 & `long pulse` <= -2) %>%
+#   write_csv("../data/output/essentiality_fructose.csv")
 ```
 
 ### Fitness per functional group
