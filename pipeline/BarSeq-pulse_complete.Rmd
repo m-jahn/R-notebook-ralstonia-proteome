@@ -26,6 +26,7 @@ library(tidyverse)
 library(dendextend)
 library(Rtools)
 library(colorspace)
+library(stringi)
 ```
 
 
@@ -283,9 +284,11 @@ plot_fitness_comp(df_fitness_comp, c("continuous_formate", "continuous_fructose"
 
 Most genes correlate in fitness value between conditions. That means, only some genes have a **condition-specific fitness effect**, i.e. increase or decrease fitness of the respective strain in one substrate or growth regime specifically. This section investigates specific genes and their functions that show such differential fitness between conditions. A simple comparison of one condition versus another will not be helpful as there two many possible combinations. To identify interesting sets of genes, cluster analysis can be performed.
 
-```{r, fig.width = 10, fig.height = 2.5}
+```{r, fig.width = 10, fig.height = 1.5}
 # generate colorpalette for heatmap
-heat_cols <- colorspace::diverging_hcl(n = 7, h = c(260, 0), c = 100, l = c(50, 90))
+heat_cols <- diverging_hcl(n = 7, h = c(255, 12), c = c(50, 80), l = c(20, 97), power = c(1, 1.3))
+#heat_cols <- diverging_hcl(n = 7, h = c(340, 128), c = c(60, 80), l = c(30, 97), power = c(0.8, 1.5))
+#heat_cols <- diverging_hcl(n = 7, h = c(300, 128), c = c(30, 65), l = c(20, 95), power = c(1, 1.4))
 
 # create a matrix from wide fitness data for plotting heatmap
 mat_heatmap <- df_fitness_comp %>% ungroup %>%
@@ -318,7 +321,7 @@ print(plot_heatmap)
 
 ```{r, include = FALSE}
 # silently export dendrogram
-png("../figures/figure_barseq_heat.png", width = 1690, height = 400, res = 150)
+png("../figures/figure_barseq_heat.png", width = 1690, height = 250, res = 150)
 print(plot_heatmap)
 dev.off()
 ```
@@ -553,19 +556,26 @@ retrieve_STRING <- function(gene_ID, taxon_ID, min_score = 0000, ref = NULL) {
 ```
 
 
-```{r, fig.width = 8, fig.height = 4.8}
+```{r, fig.width = 8.5, fig.height = 4.8}
 graph_all_enrich <- retrieve_STRING(
   gene_ID = names(subset(list_enriched, list_enriched == 4)),
   taxon_ID = 381666,
   ref = rename(df_ref, name = locus_tag)
 )
 
+nudge_circle <- function(n, size_x = 0.15, size_y = 0.1) {
+  nudge_x = size_x * -cos(seq(0.5*pi, 2.5*pi, length.out = n))
+  nudge_y = size_y * sin(seq(0.5*pi, 2.5*pi, length.out = n))
+  list(x = nudge_x, y = nudge_y)
+}
+
 graph_all_enrich %>% arrange(COG_Process) %>% activate(edges) %>% 
   filter(score >= 0.4) %>%
   ggraph(layout = 'linear', circular = TRUE) +
   geom_edge_arc(colour = grey(0.6, 0.5), aes(width = score)) + 
   geom_node_point(aes(colour = COG_Process), size = 5) +
-  geom_node_text(nudge_y = 0.1, size = 3.2, aes(label = eggNOG_name, colour = COG_Process)) +
+  geom_node_text(nudge_x = nudge_circle(22)$x, nudge_y = nudge_circle(22)$y, 
+    size = 3.2, aes(label = eggNOG_name, colour = COG_Process)) +
   scale_edge_width(range = c(0.2, 2)) +
   theme_graph(background = "white", foreground = grey(0.5),
     plot_margin = margin(10, 10, 10, 10))
@@ -633,7 +643,7 @@ df_fitness_summary %>%
 What is the role of formate-essential genes? Are there patterns that emerge? We can submit the depleted gene list to STRING DB and retrieve a possible network of interactions. The network shows immediately that there are many high-scoring interactions between the genes, particularly the soluble FDH genes are sticking out as one cluster (fdsABDG) and their transcriptional regulator fdsR. Then the molybdenum cofactor processing proteins moaCDE, moeA, mobA, mog. And a range of cytochrome genes responsible for acceptance and transport of of electrons from formate to the ETC in cytoplasmic membrane (petABC, ccoGNOP, cyc). It is also intersting what is NOT essential on formate, such as no cbb genes except the master transcriptional regulator cbbR. The reason for this must be the redundancy of all cbb genes (two operons).
 
 
-```{r, fig.width = 8, fig.height = 4.8}
+```{r, fig.width = 8.5, fig.height = 4.8}
 graph_formate_depl <- retrieve_STRING(
   gene_ID = names(subset(list_enriched, list_enriched == 1)),
   taxon_ID = 381666,
@@ -645,10 +655,82 @@ graph_formate_depl %>% arrange(COG_Process) %>% activate(edges) %>%
   ggraph(layout = 'linear', circular = TRUE) +
   geom_edge_arc(colour = grey(0.6, 0.5), aes(width = score)) + 
   geom_node_point(aes(colour = COG_Process), size = 5) +
-  geom_node_text(nudge_y = 0.1, size = 3.2, aes(label = eggNOG_name, colour = COG_Process)) +
+  geom_node_text(nudge_x = nudge_circle(34)$x, nudge_y = nudge_circle(34)$y,
+    size = 3.2, aes(label = eggNOG_name, colour = COG_Process)) +
   scale_edge_width(range = c(0.2, 2)) +
   theme_graph(background = "white", foreground = grey(0.5),
     plot_margin = margin(10, 10, 10, 10))
+```
+
+Let's create a pathway/operon based overview about the formate-essential genes. We group the genes into three categories, and also include the genes/proteins that belong to each group but were not depleted or enriched. The three groups are
+
+- formate dehydrogenase
+  - soluble (fds, fwd)
+  - membrane-bound (fdh, fdo)
+- molybdenum cofactor biosynthesis;
+  - modAB = molybdenum transporter
+  - moaACDE = molybdopterin backbone biosynthesis
+  - moeA = molybdopterin molybdenum transferase
+  - mobAB = molybdenum cofactor guanylyltransferase, 
+  - mog = molybdopterin biosynthesis protein (role?)
+- electron transport chain
+  - petABC (aka qcrABC, `H16_A3398`, `H16_A3397`, `H16_A3396`) = cycochrome bc1 (reductase)
+  - cyc (`H16_A3451`), Cytochrome c553. Other cytochrome c553 genes to include according to uniprot:
+    `H16_A0830`, `H16_A0846`, `H16_B1452`, `H16_A3576`, `H16_A1121`, `H16_A1120`
+  - ccoGNOP (`H16_A2316`, `H16_A2317`, `H16_A2318`, `H16_A2319`), cytochrome C oxidase (cbb3 type)
+  - VP2641 (`H16_A1031`) = Membrane spanning protein, RDD family. PFAM: unknown function, potential transporter? Interacts with cytochrome c553 and qcrC, cytochrome reductase. It's depletion implicates this protein in formate-specific e- transport in the membrane.
+
+We can prove that these complexes are mostly or only required during growth on formate. Can we exclude other cytochrome reductase and cytochrome oxidase complexes, or other cytochrome c553 proteins that act as e- acceptors from FDH? This type of information can be used to carve out the specific path of e- from formate through the ETC. If other cytochrome oxidase/reductase proteins are essential in all conditions, it can not be excluded that they are not required for growth on formate. We therefore also include alternative cytochrome oxidases, like ctaABCDEG and coxMNOP
+
+To summarize, according to the essentiality data on formate, electrons from formate are transported through the membrane the following way:
+
+- FDH --> Cytochrome C reductase (bc1 complex III) --> Cytochrome c553 () --> Cytochrome C oxidase (cbb3 complex IV) --> O2
+
+What is known in literature about electron transport from formate to membrane?
+
+```{r}
+# generalized function to plot (small) heatmaps
+heatmap_fitness <- function(data, key = TRUE) {
+  
+  # arrange by order of genes in operon
+  data %>% ungroup %>% arrange(gene_name) %>%
+  mutate(gene_name = factor(gene_name, unique(gene_name))) %>%
+  mutate(Condition = if_else(Condition == "pulse", "P", "C")) %>%
+  mutate(cond = as.factor(paste0(Substrate, " - ", Condition))) %>%
+  mutate(Norm_fg_median = replace(Norm_fg_median, Norm_fg_median < -6, -6)) %>%
+
+  # plot heatmap
+  levelplot(Norm_fg_median ~ gene_name * cond, .,
+    par.settings = custom.colorblind(), colorkey = key,
+    col.regions = colorRampPalette(heat_cols)(16),
+    at = seq(-6, 6, 1), aspect = "fill",
+    xlab = "", ylab = "", scales = list(cex = 0.7, x = list(rot = 90)),
+    panel = function(x, y, z, ...) {
+      panel.levelplot(x, y, z, ...)
+      panel.abline(v = seq_along(unique(x))+0.5, 
+        h = seq_along(unique(y))+0.5, col = "white", lwd = 2)
+    }
+  )
+}
+```
+
+
+```{r, fig.width = 9.5, fig.height = 4.8}
+df_fitness_summary %>% filter(Time == 8, grepl("mo[aedbg]", gene_name)) %>%
+  mutate(gene_name = stri_extract_first_regex(gene_name, "mo[aedbg]([A-Z0-9]+)?")) %>%
+  heatmap_fitness(key = FALSE) %>% print(position = c(0, 0.5, 0.5, 1), more = TRUE)
+
+df_fitness_summary %>% filter(Time == 8, grepl("fd[swho]", gene_name)) %>%
+  mutate(gene_name = stri_extract_first_regex(gene_name, "fd[swho][A-Z0-9]+")) %>%
+  mutate(gene_name = stri_replace_first_regex(gene_name, "fdhD$", "fdsC")) %>%
+  heatmap_fitness(key = FALSE) %>% print(position = c(0.45, 0.49, 1, 1), more = TRUE)
+
+df_fitness_summary %>% filter(Time == 8, locus_tag %in% c("H16_A3451", "H16_A0830",
+    "H16_A0846", "16_B1452", "H16_A3576", "H16_A1121", "H16_A1120", "H16_A1031") 
+    | grepl("qcr|cco|cta|cox[MNOPQ] ", gene_name)
+    ) %>%
+  mutate(gene_name = stri_extract_first_regex(gene_name, "H16_[AB][0-9]+|(qcr|cco|cta|cox)([A-Z0-9]+)?")) %>%
+  heatmap_fitness(key = FALSE) %>% print(position = c(0, 0, 0.69, 0.56), more = TRUE)
 ```
 
 
