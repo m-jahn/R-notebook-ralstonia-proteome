@@ -662,45 +662,64 @@ graph_formate_depl %>% arrange(COG_Process) %>% activate(edges) %>%
     plot_margin = margin(10, 10, 10, 10))
 ```
 
-Let's create a pathway/operon based overview about the formate-essential genes. We group the genes into three categories, and also include the genes/proteins that belong to each group but were not depleted or enriched. The three groups are
+Let's create a pathway/operon based overview about the formate-essential genes. We group the genes into three categories, and also include the genes/proteins that belong to each group but were not depleted or enriched. The three groups are:
 
-- formate dehydrogenase
-  - soluble (fds, fwd)
-  - membrane-bound (fdh, fdo)
-- molybdenum cofactor biosynthesis;
+- **molybdenum cofactor biosynthesis**
   - modAB = molybdenum transporter
   - moaACDE = molybdopterin backbone biosynthesis
   - moeA = molybdopterin molybdenum transferase
   - mobAB = molybdenum cofactor guanylyltransferase, 
   - mog = molybdopterin biosynthesis protein (role?)
-- electron transport chain
+- **formate dehydrogenase**
+  - soluble (fds, fwd)
+  - membrane-bound (fdh, fdo)
+- **electron transport chain**
   - petABC (aka qcrABC, `H16_A3398`, `H16_A3397`, `H16_A3396`) = cycochrome bc1 (reductase)
-  - cyc (`H16_A3451`), Cytochrome c553. Other cytochrome c553 genes to include according to uniprot:
+  - cyc (`H16_A3451`), cytochrome c553. Other cytochrome c553 genes to include according to uniprot:
     `H16_A0830`, `H16_A0846`, `H16_B1452`, `H16_A3576`, `H16_A1121`, `H16_A1120`
   - ccoGNOP (`H16_A2316`, `H16_A2317`, `H16_A2318`, `H16_A2319`), cytochrome C oxidase (cbb3 type)
   - VP2641 (`H16_A1031`) = Membrane spanning protein, RDD family. PFAM: unknown function, potential transporter? Interacts with cytochrome c553 and qcrC, cytochrome reductase. It's depletion implicates this protein in formate-specific e- transport in the membrane.
 
-We can prove that these complexes are mostly or only required during growth on formate. Can we exclude other cytochrome reductase and cytochrome oxidase complexes, or other cytochrome c553 proteins that act as e- acceptors from FDH? This type of information can be used to carve out the specific path of e- from formate through the ETC. If other cytochrome oxidase/reductase proteins are essential in all conditions, it can not be excluded that they are not required for growth on formate. We therefore also include alternative cytochrome oxidases, like ctaABCDEG and coxMNOP
+We can prove that these complexes are mostly or only required during growth on formate. Can we exclude other cytochrome reductase and cytochrome oxidase complexes, or other cytochrome c553 proteins that act as e- acceptors from FDH? This type of information can be used to carve out the specific path of e- from formate through the ETC. If other cytochrome oxidase/reductase proteins are essential in all conditions, it can not be excluded that they are not required for growth on formate. We therefore also include alternative cytochrome oxidases, like ctaABCDEG and coxMNOP, cyo and cyd operons.
 
 To summarize, according to the essentiality data on formate, electrons from formate are transported through the membrane the following way:
 
-- FDH --> Cytochrome C reductase (bc1 complex III) --> Cytochrome c553 () --> Cytochrome C oxidase (cbb3 complex IV) --> O2
+```
+S-FDH --> NADH --|
+                 |
+M-FDH --> Cytochrome C reductase (bc1 complex III) --> Cytochrome c553 () --> Cytochrome C oxidase (cbb3 complex IV) --> O2
+```
 
 What is known in literature about electron transport from formate to membrane?
+
+- main FDH is S-FDH both in terms of protein abundance, inducibility, and essentiality
+- 
+- cytochrome reductase bc1 complex (qcrABC) is **particularly important** during growth on formate (this study)
+- it is also **beneficial** during heterotrophic growth (slightly reduced fitness)
+- inhibition of this complex reduces growth in heterotrophy and lithotrophy (see Cramm 2006)
+- qcrC seems to be a cytochrome C that is mobile (?) and transports e- in membrane
+- bc1 complex functions in oxygen-limited respiration, therefore maybe no growth on formate and nitrate respiration?
+- bc1 complex deletion mutant was completely deficient in oxygen-limited growth on nitrate (Garg et al., 2018).
+- bc1 complex accepts reduced quinols as e- donor, pumps 4 H+ /2 e− via proton-motive Q cycle (quinol:cyt c oxidoreduction), and releases reduced cytochrome C e- carriers
+- Cytochrome c553 proteins are e- shuttles in membrane, between bc1 and respiration complexes (?)
+- cbb3-type cytochrome oxidase special member of the heme-copper oxidase family
+- "in Bradyrhizobium japonicum, this enzyme operates at extremely low partial pressures of oxygen" [Preisig et al., 1996]
+- 
+
 
 ```{r}
 # generalized function to plot (small) heatmaps
 heatmap_fitness <- function(data, key = TRUE) {
   
-  # arrange by order of genes in operon
-  data %>% ungroup %>% arrange(gene_name) %>%
-  mutate(gene_name = factor(gene_name, unique(gene_name))) %>%
+  # make some small adjustments to optical appeaarance
+  mutate(data, gene_name = factor(gene_name, unique(gene_name))) %>%
   mutate(Condition = if_else(Condition == "pulse", "P", "C")) %>%
-  mutate(cond = as.factor(paste0(Substrate, " - ", Condition))) %>%
+  mutate(cond = paste0(Substrate, " - ", Condition)) %>%
+  group_by(gene_name) %>% arrange(cond) %>%
   mutate(Norm_fg_median = replace(Norm_fg_median, Norm_fg_median < -6, -6)) %>%
 
   # plot heatmap
-  levelplot(Norm_fg_median ~ gene_name * cond, .,
+  levelplot(Norm_fg_median ~ gene_name * factor(cond), .,
     par.settings = custom.colorblind(), colorkey = key,
     col.regions = colorRampPalette(heat_cols)(16),
     at = seq(-6, 6, 1), aspect = "fill",
@@ -715,22 +734,38 @@ heatmap_fitness <- function(data, key = TRUE) {
 ```
 
 
-```{r, fig.width = 9.5, fig.height = 4.8}
-df_fitness_summary %>% filter(Time == 8, grepl("mo[aedbg]", gene_name)) %>%
+```{r, fig.width = 10, fig.height = 5.0}
+plot_formate_fit_1 <- df_fitness_summary %>% filter(Time == 8, grepl("mo[aedbg]", gene_name)) %>%
   mutate(gene_name = stri_extract_first_regex(gene_name, "mo[aedbg]([A-Z0-9]+)?")) %>%
-  heatmap_fitness(key = FALSE) %>% print(position = c(0, 0.5, 0.5, 1), more = TRUE)
+  ungroup %>% arrange(gene_name) %>%
+  heatmap_fitness(key = FALSE)
 
-df_fitness_summary %>% filter(Time == 8, grepl("fd[swho]", gene_name)) %>%
+plot_formate_fit_2 <- df_fitness_summary %>% filter(Time == 8, grepl("fd[swho]", gene_name)) %>%
   mutate(gene_name = stri_extract_first_regex(gene_name, "fd[swho][A-Z0-9]+")) %>%
   mutate(gene_name = stri_replace_first_regex(gene_name, "fdhD$", "fdsC")) %>%
-  heatmap_fitness(key = FALSE) %>% print(position = c(0.45, 0.49, 1, 1), more = TRUE)
+  ungroup %>% arrange(gene_name) %>%
+  heatmap_fitness(key = FALSE)
 
-df_fitness_summary %>% filter(Time == 8, locus_tag %in% c("H16_A3451", "H16_A0830",
-    "H16_A0846", "16_B1452", "H16_A3576", "H16_A1121", "H16_A1120", "H16_A1031") 
-    | grepl("qcr|cco|cta|cox[MNOPQ] ", gene_name)
-    ) %>%
-  mutate(gene_name = stri_extract_first_regex(gene_name, "H16_[AB][0-9]+|(qcr|cco|cta|cox)([A-Z0-9]+)?")) %>%
-  heatmap_fitness(key = FALSE) %>% print(position = c(0, 0, 0.69, 0.56), more = TRUE)
+plot_formate_fit_3 <- df_fitness_summary %>% filter(Time == 8, locus_tag %in% c("H16_A3451", "H16_A0830",
+    "H16_A0846", "16_B1452", "H16_A3576", "H16_A1121", "H16_A1120", "H16_A1031") | 
+    grepl("qcr|cco|cta|cox[MNOPQ] |cyo|cyd", gene_name)) %>%
+  mutate(gene_name = stri_extract_first_regex(gene_name, "H16_[AB][0-9]+|(qcr|cco|cta|cox|cyo|cyd)([A-Z0-9]+)?")) %>%
+  ungroup %>% arrange(
+    factor(str_sub(gene_name, 1, 3), c("cyo", "cyd", "qcr", "H16", "cox", "cta", "cco")), 
+    str_sub(gene_name, 4, 5)) %>%
+  heatmap_fitness()
+
+print(plot_formate_fit_1, position = c(0, 0.475, 0.5, 1), more = TRUE)
+print(plot_formate_fit_2, position = c(0.475, 0.49, 0.95, 1), more = TRUE)
+print(plot_formate_fit_3, position = c(0, 0, 1, 0.57))
+```
+
+```{r, include = FALSE}
+svg("../figures/figure_barseq_formate.svg", width = 10, height = 5.0)
+print(plot_formate_fit_1, position = c(0, 0.48, 0.49, 1), more = TRUE)
+print(plot_formate_fit_2, position = c(0.485, 0.49, 0.95, 1), more = TRUE)
+print(plot_formate_fit_3, position = c(0, 0, 1, 0.57))
+dev.off()
 ```
 
 
@@ -763,7 +798,8 @@ graph_all_depl %>% arrange(COG_Process) %>% activate(edges) %>%
   ggraph(layout = 'linear', circular = TRUE) +
   geom_edge_arc(colour = grey(0.6, 0.5), aes(width = score)) + 
   geom_node_point(aes(colour = COG_Process), size = 5) +
-  geom_node_text(nudge_y = 0.1, size = 3.2, aes(label = eggNOG_name, colour = COG_Process)) +
+  geom_node_text(nudge_x = nudge_circle(38)$x, nudge_y = nudge_circle(38)$y,
+    size = 3.2, aes(label = eggNOG_name, colour = COG_Process)) +
   scale_edge_width(range = c(0.2, 2)) +
   theme_graph(background = "white", foreground = grey(0.5),
     plot_margin = margin(10, 10, 10, 10))
@@ -775,3 +811,4 @@ graph_all_depl %>% arrange(COG_Process) %>% activate(edges) %>%
 #   filter(continuous <= -2 & `short pulse` <= -2 & `long pulse` <= -2) %>%
 #   write_csv("../data/output/essentiality_fructose.csv")
 ```
+
