@@ -55,13 +55,13 @@ df_counts <- bind_rows(df_counts_frc, df_counts_suc)
 # import fitness data, the final output of the BarSeq pipeline
 load("../../../rebar/data/20201222_barseq_frc/results/fitness_gene.Rdata")
 df_fitness_frc <- fitness_gene %>%
-  filter(Condition != "long pulse", Time != 32) %>%
-  mutate(ID = as.numeric(ID), Substrate = "fructose", 
-    Condition = str_remove(Condition, "short "))
+  filter(condition != "long pulse", time != 32) %>%
+  mutate(ID = as.numeric(ID), substrate = "fructose", 
+    condition = str_remove(condition, "short "))
 
 load("../../../rebar/data/20210407_barseq_suc_for/results/fitness_gene.Rdata")
 df_fitness_suc <- fitness_gene %>%
-  separate(Condition, sep = "_", into = c("Substrate", "Condition"))
+  separate(condition, sep = "_", into = c("substrate", "condition"))
 
 # merge fitness tables
 df_fitness <- bind_rows(df_fitness_frc, df_fitness_suc) %>%
@@ -118,9 +118,9 @@ Similarly to the above, this is an overview about the **number of barcodes per g
 
 
 ```{r, fig.width = 8, fig.height = 4.2, message = FALSE}
-plot_reads_per_bc <- histogram(~ Strains_per_gene,
-  df_fitness %>% select(locus_tag, Strains_per_gene) %>% 
-    distinct %>% filter(Strains_per_gene < 40), 
+plot_reads_per_bc <- histogram(~ strains_per_gene,
+  df_fitness %>% select(locus_tag, strains_per_gene) %>% 
+    distinct %>% filter(strains_per_gene < 40), 
   par.settings = custom.colorblind(), breaks = 20, xlim=c(-2, 42),
   xlab = expression("mutants per gene"),
   panel = function(x, ...) {
@@ -132,8 +132,8 @@ plot_reads_per_bc <- histogram(~ Strains_per_gene,
 )
 
 plot_reads_per_gene <- histogram(~ log2(reads_per_gene_median),
-  df_fitness %>% filter(Time != 0) %>% group_by(locus_tag) %>%
-    summarize(reads_per_gene_median = median(Counts)),
+  df_fitness %>% filter(time != 0) %>% group_by(locus_tag) %>%
+    summarize(reads_per_gene_median = median(counts)),
   par.settings = custom.colorblind(), breaks = 20,
   xlab = expression("log"[2]*" reads per gene (med)"),
   panel = function(x, ...) {
@@ -156,9 +156,9 @@ We can plot log2 FC or normalized gene fitness over generations. For this type o
 
 ```{r, messages = FALSE}
 df_fitness_summary <- df_fitness %>%
-  group_by(locus_tag, scaffold, Time, Condition, Substrate, Strains_per_gene) %>%
+  group_by(locus_tag, scaffold, time, condition, substrate, strains_per_gene) %>%
   summarize(
-    Norm_fg_median = median(Norm_fg, na.rm = TRUE),
+    norm_gene_fitness_median = median(norm_gene_fitness, na.rm = TRUE),
     log2FC_median = median(log2FC, na.rm = TRUE),
     tstat_median = median(t, na.rm = TRUE)
   ) %>%
@@ -169,10 +169,10 @@ df_fitness_summary <- df_fitness %>%
 ```{r, fig.width = 6.5, fig.height = 8}
 plot_hist_log2FC <- df_fitness_summary %>%
   filter(all(!is.infinite(log2FC_median))) %>%
-  group_by(Condition, Substrate) %>%
+  group_by(condition, substrate) %>%
   slice(1:2000) %>%
   
-  xyplot(log2FC_median ~ Time | Substrate * Condition, .,
+  xyplot(log2FC_median ~ time | substrate * condition, .,
     groups = locus_tag, as.table = TRUE,
     col = stdcol[1], alpha = 0.2, layout = c(3, 2),
     xlab = "", ylab = expression("log"[2]*" FC"),
@@ -187,10 +187,10 @@ plot_hist_log2FC <- df_fitness_summary %>%
 
 plot_hist_normfg <- df_fitness_summary %>%
   filter(all(!is.infinite(log2FC_median))) %>%
-  group_by(Condition, Substrate) %>%
+  group_by(condition, substrate) %>%
   slice(1:2000) %>%
   
-  xyplot(Norm_fg_median ~ Time | Substrate * Condition, .,
+  xyplot(norm_gene_fitness_median ~ time | substrate * condition, .,
     groups = locus_tag, as.table = TRUE,
     col = stdcol[2], alpha = 0.2, layout = c(3, 2),
     xlab = "generations", ylab = "fitness",
@@ -211,9 +211,9 @@ As sort of an internal control, we compare the gene fitness obtained by a comple
 
 ```{r, fig.width = 6.5, fig.height = 5.2}
 df_fitness_summary %>%
-  filter(Time == 8, all(!is.infinite(log2FC_median))) %>%
+  filter(time == 8, all(!is.infinite(log2FC_median))) %>%
   
-  xyplot(Norm_fg_median ~ log2FC_median |  Substrate * Condition, .,
+  xyplot(norm_gene_fitness_median ~ log2FC_median |  substrate * condition, .,
     as.table = TRUE, col = stdcol[5], pch = 19,
     alpha = 0.4, cex = 0.6,
     layout = c(3, 2), xlim = c(-8,3), ylim = c(-6,5),
@@ -236,11 +236,11 @@ df_fitness_summary %>%
 Similarly to Figure 2 in [Wetmore et al, mBIO, 2015](https://mbio.asm.org/content/6/3/e00306-15), we can investigate condition-dependent gene fitness by comparing conditions and substrates one-on-one. The correlation between substrates and growth regimes (continuous, pulsed) is quite different. The strongest correlation does exist for the pulsed vs continuous regime for each substrate (R = 0.64 to 0.87). And for the pulsed conditions, comparison between substrates (R = 0.62 to 0.72).
 
 ```{r, fig.width = 8, fig.height = 8, message = FALSE}
-df_fitness_comp <- df_fitness_summary %>% filter(Time == 8) %>%
+df_fitness_comp <- df_fitness_summary %>% filter(time == 8) %>%
   group_by(locus_tag) %>% mutate(tstat_median = min(tstat_median)) %>%
-  select(locus_tag, Condition, Substrate, Norm_fg_median, gene_name, COG_Process, tstat_median) %>%
-  unite(Condition, Condition, Substrate) %>%
-  pivot_wider(names_from = Condition, values_from = Norm_fg_median) %>%
+  select(locus_tag, condition, substrate, norm_gene_fitness_median, gene_name, COG_Process, tstat_median) %>%
+  unite(condition, condition, substrate) %>%
+  pivot_wider(names_from = condition, values_from = norm_gene_fitness_median) %>%
   filter(!is.na(locus_tag))
 
 custom_splom(df_fitness_comp %>% ungroup %>% 
@@ -370,20 +370,20 @@ One of the most puzzling results is the appearance of (very) fast growing mutant
 
 ```{r, echo = FALSE}
 # color vector for conditions
-subs_col <- c(stdcol[1], lighten(stdcol[1], 0.3), stdcol[2],
-  lighten(stdcol[2], 0.3), stdcol[3], lighten(stdcol[3], 0.3))
+subs_col <- c(stdcol[2], lighten(stdcol[2], 0.3), stdcol[3],
+  lighten(stdcol[3], 0.3), stdcol[4], lighten(stdcol[4], 0.3))
 
 # generalized function for barplots
 barchart_fitness <- function(data) {
   # sort by cumulative fitness
   data %>% group_by(locus_tag) %>% 
-  mutate(sum_fitness = sum(Norm_fg_median)) %>%
+  mutate(sum_fitness = sum(norm_gene_fitness_median)) %>%
   arrange(sum_fitness) %>%
   mutate(name = paste0(locus_tag, " | ", eggNOG_name, " | ", 
     substr(eggNOG_description, 1, 40))) %>%
   
-  barchart(factor(name, unique(name)) ~ Norm_fg_median, .,
-    group = paste(Substrate, Condition),
+  barchart(factor(name, unique(name)) ~ norm_gene_fitness_median, .,
+    group = paste(substrate, condition),
     par.settings = custom.colorblind(),
     col = subs_col, border = "white", stack = TRUE,
     xlab = "cumulative fitness",
@@ -397,8 +397,8 @@ barchart_fitness <- function(data) {
 }
 
 linechart_fitness <- function(data) {
-  xyplot(Norm_fg_median ~ Time | locus_tag, data,
-    groups = paste(Substrate, Condition), as.table = TRUE,
+  xyplot(norm_gene_fitness_median ~ time | locus_tag, data,
+    groups = paste(substrate, condition), as.table = TRUE,
     par.settings = custom.colorblind(), type = c("l"),
     col = subs_col, lwd = 2.5,
     layout = c(5, ceiling(length(unique(data$locus_tag))/5)),
@@ -421,7 +421,7 @@ What is the identity of the enriched genes? Which ones are enriched in several c
 ```{r, fig.width = 10, fig.height = 4.5}
 df_fitness_summary %>%
   filter(locus_tag %in% names(subset(list_enriched, list_enriched == 3))) %>%
-  filter(Time == 16) %>%
+  filter(time == 8) %>%
   barchart_fitness() %>%
   print(position = c(0,0,0.6,1), more = TRUE)
 
@@ -456,17 +456,17 @@ Here, the obvious question with biotechnological importance is to find mutants w
 
 ```{r, fig.width = 10, fig.height = 4.5}
 list_fitness_formate <- df_fitness_summary %>%
-  group_by(locus_tag, Substrate, Time) %>%
+  group_by(locus_tag, substrate, time) %>%
   mutate(formate_hit = case_when(
-    Substrate == "formate" & max(Norm_fg_median) >= 2 ~ TRUE,
-    Substrate != "formate" & max(Norm_fg_median) <= 1 ~ TRUE,
+    substrate == "formate" & max(norm_gene_fitness_median) >= 2 ~ TRUE,
+    substrate != "formate" & max(norm_gene_fitness_median) <= 1 ~ TRUE,
     TRUE ~ FALSE)
-  ) %>% group_by(locus_tag, Time) %>%
+  ) %>% group_by(locus_tag, time) %>%
   filter(all(formate_hit), n() == 6) %>% 
   pull(locus_tag) %>% unique
 
 df_fitness_summary %>%
-  filter(Time == 16, locus_tag %in% list_fitness_formate) %>%
+  filter(time == 8, locus_tag %in% list_fitness_formate) %>%
   barchart_fitness() %>%
   print(position = c(0,0,0.6,1), more = TRUE)
 
@@ -486,18 +486,18 @@ This is similar to the analysis above for formate, with the exception that many 
 
 ```{r, fig.width = 10, fig.height = 4.5}
 list_fitness_succinate <- df_fitness_summary %>%
-  filter(Time == 8) %>%
-  group_by(locus_tag, Substrate) %>%
+  filter(time == 8) %>%
+  group_by(locus_tag, substrate) %>%
   mutate(succinate_hit = case_when(
-    Substrate == "succinate" & max(Norm_fg_median) >= 2 ~ TRUE,
-    Substrate != "succinate" & max(Norm_fg_median) <= 1 ~ TRUE,
+    substrate == "succinate" & max(norm_gene_fitness_median) >= 2 ~ TRUE,
+    substrate != "succinate" & max(norm_gene_fitness_median) <= 1 ~ TRUE,
     TRUE ~ FALSE)
   ) %>% group_by(locus_tag) %>%
   filter(all(succinate_hit), n() == 6, locus_tag != "H16_A2912") %>% 
   pull(locus_tag) %>% unique
 
 df_fitness_summary %>%
-  filter(Time == 16, locus_tag %in% list_fitness_succinate) %>%
+  filter(time == 8, locus_tag %in% list_fitness_succinate) %>%
   barchart_fitness() %>%
   print(position = c(0,0,0.6,1), more = TRUE)
 
@@ -511,7 +511,7 @@ df_fitness_summary %>%
 
 A group of five highly related genes shows significant enrichment in (continuous) succinate: `H16_2096` (dppA1), `H16_A2406` (dppD2), `H16_A2407` (dppC2), `H16_A2408` (dppB2), and `H16_A2409`, dppA2. Alternative names are yejABCDE. All of these proteins are part of an ABC transporter of the PepT family. Quote from PFAM about this type of protein/domain: "All characterised members appear to be involved in the transport of oligopeptides or dipeptides. Some are important for sporulation or antibiotic resistance. Some dipeptide transporters also act on the heme precursor delta-aminolevulinic acid.
 The enrichment seems to be highly reproducible: each of these genes has 7 to 15 different insertion mutants, all showing the same average pattern. At least two more genes are also involved in (amino acid?) transport, `H16_A3284` and `H16_A2521`. The latter one is a "D-amino acid transferase (D-AAT), required by bacteria to catalyse the synthesis of D-glutamic acid and D-alanine" (PFAM).
-Supposed mechanism of enrichment: Growth on succinate could lead to a shortage/imbalance of certain amino acids, and investment in uptake might give a growth advantage.
+Supposed mechanism of enrichment: Growth on succinate could lead to a shortage/imbalance of certain amino acids, and investment in uptake might give a growth advantage. The growth advantage was only visible in the continuous condition, and is probably not universal for succinate. No gene/mutant was enriched in both succinate growth regimes.
 
 #### Strains enriched in several conditions
 
@@ -520,7 +520,7 @@ A wealth of genes/mutants are enriched in multiple mainly pulsed growth conditio
 ```{r, fig.width = 10, fig.height = 6.5}
 df_fitness_summary %>%
   filter(locus_tag %in% names(subset(list_enriched, list_enriched == 4))) %>%
-  filter(Time == 16) %>%
+  filter(time == 8) %>%
   barchart_fitness() %>%
   print(position = c(0,0,0.6,1), more = TRUE)
 
@@ -553,6 +553,13 @@ retrieve_STRING <- function(gene_ID, taxon_ID, min_score = 0000, ref = NULL) {
     string_graph
   }
 }
+
+# function to space labels in certain distance to circle
+nudge_circle <- function(n, size_x = 0.15, size_y = 0.1) {
+  nudge_x = size_x * -cos(seq(0.5*pi, 2.5*pi, length.out = n))
+  nudge_y = size_y * sin(seq(0.5*pi, 2.5*pi, length.out = n))
+  list(x = nudge_x, y = nudge_y)
+}
 ```
 
 
@@ -562,12 +569,6 @@ graph_all_enrich <- retrieve_STRING(
   taxon_ID = 381666,
   ref = rename(df_ref, name = locus_tag)
 )
-
-nudge_circle <- function(n, size_x = 0.15, size_y = 0.1) {
-  nudge_x = size_x * -cos(seq(0.5*pi, 2.5*pi, length.out = n))
-  nudge_y = size_y * sin(seq(0.5*pi, 2.5*pi, length.out = n))
-  list(x = nudge_x, y = nudge_y)
-}
 
 graph_all_enrich %>% arrange(COG_Process) %>% activate(edges) %>% 
   filter(score >= 0.4) %>%
@@ -599,8 +600,8 @@ All above results are based on fitness score, which is not much more than a norm
 We can compare if the mutants with extremely high fitness scores are also the ones that are super-abundant at the final time point, ie.e. have an average read count of >= 500,000 after 16 generations. In fact, only 3 genes have such an extreme read count, but 9 have more than 100,000 reads.
 
 ```{r}
-df_fitness %>% filter(Time == 16, locus_tag %in% (subset(list_enriched, list_enriched %in% c(3,4)) %>% names)) %>%
-  group_by(locus_tag) %>% summarize(max_counts = max(Counts), max_fitness = max(Norm_fg)) %>%
+df_fitness %>% filter(time == 16, locus_tag %in% (subset(list_enriched, list_enriched %in% c(3,4)) %>% names)) %>%
+  group_by(locus_tag) %>% summarize(max_counts = max(counts), max_fitness = max(norm_gene_fitness)) %>%
   arrange(desc(max_counts))
 ```
 
@@ -614,8 +615,8 @@ On the other hand, we can check which genes have an extremely high read count (>
     Supposed mechanism: unknown.
 
 ```{r}
-df_fitness %>% filter(Time == 16, Counts > 5*10^5) %>%
-  group_by(locus_tag) %>% summarize(max_counts = max(Counts), max_fitness = max(Norm_fg)) %>%
+df_fitness %>% filter(time == 16, counts > 5*10^5) %>%
+  group_by(locus_tag) %>% summarize(max_counts = max(counts), max_fitness = max(norm_gene_fitness)) %>%
   arrange(desc(max_counts))
 ```
 
@@ -630,7 +631,7 @@ Several genes/mutants are depleted over time depending on growth condition. Most
 ```{r, fig.width = 10, fig.height = 6.5}
 df_fitness_summary %>%
   filter(locus_tag %in% names(subset(list_enriched, list_enriched == 1))) %>%
-  filter(Time == 16) %>%
+  filter(time == 16) %>%
   barchart_fitness() %>%
   print(position = c(0,0,0.6,1), more = TRUE)
 
@@ -713,13 +714,13 @@ heatmap_fitness <- function(data, key = TRUE) {
   
   # make some small adjustments to optical appeaarance
   mutate(data, gene_name = factor(gene_name, unique(gene_name))) %>%
-  mutate(Condition = if_else(Condition == "pulse", "P", "C")) %>%
-  mutate(cond = paste0(Substrate, " - ", Condition)) %>%
+  mutate(condition = if_else(condition == "pulse", "P", "C")) %>%
+  mutate(cond = paste0(substrate, " - ", condition)) %>%
   group_by(gene_name) %>% arrange(cond) %>%
-  mutate(Norm_fg_median = replace(Norm_fg_median, Norm_fg_median < -6, -6)) %>%
+  mutate(norm_gene_fitness_median = replace(norm_gene_fitness_median, norm_gene_fitness_median < -6, -6)) %>%
 
   # plot heatmap
-  levelplot(Norm_fg_median ~ gene_name * factor(cond), .,
+  levelplot(norm_gene_fitness_median ~ gene_name * factor(cond), .,
     par.settings = custom.colorblind(), colorkey = key,
     col.regions = colorRampPalette(heat_cols)(16),
     at = seq(-6, 6, 1), aspect = "fill",
@@ -735,18 +736,18 @@ heatmap_fitness <- function(data, key = TRUE) {
 
 
 ```{r, fig.width = 10, fig.height = 5.0}
-plot_formate_fit_1 <- df_fitness_summary %>% filter(Time == 8, grepl("mo[aedbg]", gene_name)) %>%
+plot_formate_fit_1 <- df_fitness_summary %>% filter(time == 8, grepl("mo[aedbg]", gene_name)) %>%
   mutate(gene_name = stri_extract_first_regex(gene_name, "mo[aedbg]([A-Z0-9]+)?")) %>%
   ungroup %>% arrange(gene_name) %>%
   heatmap_fitness(key = FALSE)
 
-plot_formate_fit_2 <- df_fitness_summary %>% filter(Time == 8, grepl("fd[swho]", gene_name)) %>%
+plot_formate_fit_2 <- df_fitness_summary %>% filter(time == 8, grepl("fd[swho]", gene_name)) %>%
   mutate(gene_name = stri_extract_first_regex(gene_name, "fd[swho][A-Z0-9]+")) %>%
   mutate(gene_name = stri_replace_first_regex(gene_name, "fdhD$", "fdsC")) %>%
   ungroup %>% arrange(gene_name) %>%
   heatmap_fitness(key = FALSE)
 
-plot_formate_fit_3 <- df_fitness_summary %>% filter(Time == 8, locus_tag %in% c("H16_A3451", "H16_A0830",
+plot_formate_fit_3 <- df_fitness_summary %>% filter(time == 8, locus_tag %in% c("H16_A3451", "H16_A0830",
     "H16_A0846", "16_B1452", "H16_A3576", "H16_A1121", "H16_A1120", "H16_A1031") | 
     grepl("qcr|cco|cta|cox[MNOPQ] |cyo|cyd", gene_name)) %>%
   mutate(gene_name = stri_extract_first_regex(gene_name, "H16_[AB][0-9]+|(qcr|cco|cta|cox|cyo|cyd)([A-Z0-9]+)?")) %>%
@@ -776,7 +777,7 @@ Which genes are depleted in all conditions (cluster 2)? Here we see the effect o
 ```{r, fig.width = 10, fig.height = 6.5}
 df_fitness_summary %>%
   filter(locus_tag %in% names(subset(list_enriched, list_enriched == 2))) %>%
-  filter(Time == 16) %>%
+  filter(time == 16) %>%
   barchart_fitness() %>%
   print(position = c(0,0,0.6,1), more = TRUE)
 
@@ -810,5 +811,164 @@ graph_all_depl %>% arrange(COG_Process) %>% activate(edges) %>%
 # df_fitness_comp %>%
 #   filter(continuous <= -2 & `short pulse` <= -2 & `long pulse` <= -2) %>%
 #   write_csv("../data/output/essentiality_fructose.csv")
+```
+
+### Fitness of *cbb* genes
+
+One of the most interesting features of *C. necator* is the *cbb* operon encoding enzymes for PPP and Calvin cycle (e.g. Rubisco). Two almost identical copies of the operon are present in the genome, one on the pHG1 megaplasmid and one one chromosome 2. The latter one has two additional genes, a putative *cbbB* formate dehydrogenase, and *cbbR*, the transcriptional regulator.
+To visualize general trends for all genes of a pathway, we can use a beeswarm plot broken down by condition.
+
+```{r, fig.width = 5.5, fig.height = 3}
+plot_cbb_fitness_bee <- df_fitness_summary %>% ungroup %>%
+  filter(time == 8, str_detect(gene_name, "cbb.|cfx.|cbx.")) %>%
+  mutate(gene_name = str_replace(gene_name, "cfx|cbx", "cbb")) %>%
+  mutate(condition = paste0(substrate, "\n", toupper(substr(condition, 1, 1)))) %>%
+  
+  xyplot(norm_gene_fitness_median ~ factor(condition), .,
+    groups = condition, par.settings = custom.colorblind(col = subs_col),
+    labels = stri_extract_first(.[["gene_name"]], regex = "cbb.|cfx.|cbx."),
+    xlab = "", ylab = "fitness (8 gen)", ylim = c(-7.5, 2.5),
+    scales = list(alternating = FALSE),
+    panel = function(x, y, ...) {
+      panel.grid(h = -1, v = -1, col = grey(0.9))
+      panel.abline(h = 0, lwd = 1.5, col = grey(0.7), lty = 2)
+      coords <- panel.beeswarm(x, y, bin_y = TRUE, breaks_y = seq(-10, 4, 0.5), 
+        return_coords = TRUE, ...)
+      panel.directlabel(x = coords$x, y = coords$y, y_boundary = c(-10, -4), 
+        cex = 0.6, draw_box = TRUE, box_line = TRUE, ...)
+    }
+  )
+
+print(plot_cbb_fitness_bee)
+```
+Only one gene is really depleted and therefore essential on the two formate conditions, *cbbR*. At least two more genes for Rubisco and PRUK should be essential on formate as they have no counterpart on chromosome 1. They show no significant depletion. This proves that the two *cbb* operons can fully complement each other, except for *cbbR*, the one gene present in only copy (chromosome 2).
+
+Note: Some *cbb* mutants for chromosome 2 seem to have a more positive fitness score compared to their counter parts on the pHG1 megaplasmid. Some genes with higher fitness show sudden leaps from 8 to 16 hours. A look up in the summary table revealed that they have only 1 or 2 mutants quantified per gene, which makes the results less reliable, particularly for the continuous conditions on fructose with low read count at 16 generationa. Results for these mutants have to be interpreted with care. The folowing plot focuses on the pHG1 *cbb* copies which have on average higher coverage with individual mutants.
+
+
+```{r, fig.width = 5.5, fig.height = 3.5}
+# single time series per gene
+plot_cbb_fitness_select <- df_fitness %>% ungroup %>%
+  left_join(select(df_ref, locus_tag, gene_name), by = "locus_tag") %>%
+  filter(str_detect(gene_name, "(cbb|cfx|cbx)[PSLZKGATE]P|cbbR")) %>%
+  mutate(condition = paste0(substrate, " - ", toupper(substr(condition, 1, 1)))) %>%
+  mutate(
+    gene_name = case_when(
+      gene_name == "cfxR cbbR H16_B1396" ~ "cbbR (REG)",
+      gene_name == "cfxP cbbPP PHG421" ~ "cbbP (PRUK)",
+      gene_name == "cbxSP cbbS cbbSP cfxSP rbcS PHG426" ~ "cbbS (RBPC)",
+      gene_name == "cbbL2 cbbL cbxLP cfxLP PHG427" ~ "cbbL (RBPC)",
+      gene_name == "cbbZP PHG419" ~ "cbbZ (PGP)",
+      gene_name == "cbbKP PHG417" ~ "cbbK (PGK)",
+      gene_name == "cbbGP PHG418" ~ "cbbG (GAPDH)",
+      gene_name == "cbbAP PHG416" ~ "cbbA (FBA)",
+      gene_name == "cbbTP PHG420" ~ "cbbT (TKT)",
+      gene_name == "cbxXP cfxXP PHG425" ~ "cbbX (RBCA)",
+      gene_name == "cbbEP cfxE PHG423" ~ "cbbE (RPE)"
+    ) %>% factor(., unique(.)[c(1,7,9,10,5,3,4,2,6,8)])
+  ) %>%
+  
+  xyplot(norm_gene_fitness ~ factor(time) | gene_name, .,
+    groups = condition, par.settings = custom.lattice(col = subs_col),
+    type = c("p", "l"), xlab = "generations", ylab = "fitness",
+    ylim = c(-4, 4), layout = c(5, 2), between = list(x = 0.5, y = 0.5),
+    auto.key = list(columns = 3, cex = 0.7),
+    scales = list(alternating = FALSE), lwd = 2,
+    panel = function(x, y, ...) {
+      panel.grid(h = -1, v = -1, col = grey(0.9))
+      panel.errbars(x, y, ewidth = 0, ...)
+    }
+  )
+
+print(plot_cbb_fitness_select)
+```
+
+```{r, include = FALSE, fig.width = 5.5, fig.height = 6}
+svg("../figures/figure_fitness_cbb.svg", width = 5.5, height = 6)
+print(plot_cbb_fitness_bee, position = c(0, 0.53, 1, 1), more = TRUE)
+print(plot_cbb_fitness_select, position = c(0, 0, 1, 0.6))
+dev.off()
+```
+
+
+### Fitness of central metabolism genes
+
+In order to obtain an overview about fitness contribution of central carbon metabolism enzymes, we can select the same list of enzymes (reactions) that was used for Figure 3 of the manuscript. In this figure, absolute protein abundance, relative change in protein abundance, utilization was compared. The names of enzymatic reactions are taken from the genome scale modeland have to be mapped to gene IDs.
+
+```{r, message = FALSE}
+df_ccm_enzymes <- list(
+  `Calvin cycle` = c("PGK", "TPI", "GAPD", "FBA", "FBP", "TKT1", "TKT2", "TAh", "RPE", "RPI", "PRUK", "RBPC", "FDH"),
+  `Entner Douderoff` = c("PGI", "G6PDH2r", "PGL", "EDD", "EDA"),
+  `Pyruvate metabolism` = c("PGM", "ENO", "PYK", "PDH1", "PDH2", "PDH3", "PC", "PPC", "ME1", "ME2", "CS"),
+  `TCA cycle` = c("ACONT1", "ACONT2", "ICDHx", "ICDHyr", "AKGDH", "SUCOAS", "SUCDi", "SUCD1", "FUM", "MDH", "MALS")
+) %>% enframe("model_group_short", "reaction_id") %>% 
+unnest(reaction_id)
+
+df_model_reactions <- read_csv("../data/input/model_reactions.csv", col_types = cols()) %>%
+  select(reaction_id, reaction_name, genes) %>% separate_rows(genes, sep = ", ") %>%
+  rename(locus_tag = genes) %>%
+  right_join(df_ccm_enzymes, by = "reaction_id") %>%
+  # remove 1 gene from TCA which is also listed in PYR (pdh3 / dihydrolipoamide dehydrogenase)
+  filter(!(locus_tag == "H16_A1377" & model_group_short == "TCA"))
+```
+
+The beeswarm plot shows that some genes are conditionally essential, albeit not many. Trends that are consistent between time points and growth regimes are:
+- depletion of `fdsABDG` aka the soluble FDH in both formate conditions (described previously in detail)
+- depletion of `eda`, `edd` and `pgl` in fructose (all consecutive reactions of the ED pw), to a lower extent in formate too?
+- `ppc` (PEP carbooxylase) in formate, also predicted by FBA/RBA to carry major flux in formate)
+- `pdhA` (pyruvate dehydrogenase) on fructose and succinate
+- `maeA` malic enzyme
+- nothing from TCA cycle
+
+
+```{r, fig.width = 8, fig.height = 6}
+plot_ccm_bee <- df_fitness_summary %>%
+  inner_join(df_model_reactions, by = "locus_tag") %>%
+  ungroup %>% filter(time == 8) %>%
+  mutate(condition = paste0(substrate, "\n", toupper(substr(condition, 1, 1)))) %>%
+  mutate(gene_name = stri_extract_first(gene_name, regex = "[a-zA-Z0-9]+")) %>%
+
+  xyplot(norm_gene_fitness_median ~ factor(condition) | model_group_short, .,
+    groups = condition, par.settings = custom.colorblind(col = subs_col),
+    labels = .[["gene_name"]], xlab = "", ylab = "fitness (8 gen)", 
+    ylim = c(-7.5, 2.5), as.table = TRUE, between = list(x = 0.5, y = 0.5),
+    scales = list(alternating = FALSE),
+    panel = function(x, y, ...) {
+      panel.grid(h = -1, v = -1, col = grey(0.9))
+      panel.abline(h = 0, lwd = 1.5, col = grey(0.7), lty = 2)
+      coords <- panel.beeswarm(x, y, bin_y = TRUE, breaks_y = seq(-10, 4, 0.4),
+        return_coords = TRUE, ...)
+      panel.directlabel(coords$x, coords$y, y_boundary = c(-10, -3), cex = 0.6,
+        draw_box = TRUE, box_line = TRUE, ...)
+    }
+  )
+
+print(plot_ccm_bee)
+```
+
+```{r, fig.width = 8, fig.height = 3.5}
+# single time series per gene
+plot_ccm_fitness_select <- df_fitness %>% ungroup %>%
+  left_join(select(df_ref, locus_tag, gene_name), by = "locus_tag") %>%
+  inner_join(df_model_reactions, by = "locus_tag") %>%
+  filter(str_detect(gene_name, "fds|pgl|pgi|edd|eda|ppc|pdh|mae")) %>%
+  mutate(condition = paste0(substrate, " - ", toupper(substr(condition, 1, 1)))) %>%
+  mutate(gene_name = stri_extract_first(gene_name, regex = "[a-zA-Z0-9]+")) %>%
+  
+  xyplot(norm_gene_fitness ~ factor(time) | gene_name, .,
+    groups = condition, as.table = TRUE,
+    par.settings = custom.colorblind(col = subs_col), type = c("p", "l"),
+    xlab = "generations", ylab = "fitness",
+    ylim = c(-8.5, 4), layout = c(8, 2), 
+    between = list(x = 0.5, y = 0.5),
+    auto.key = list(columns = 3, cex = 0.7),
+    scales = list(alternating = FALSE), lwd = 2,
+    panel = function(x, y, ...) {
+      panel.grid(h = -1, v = -1, col = grey(0.9))
+      panel.errbars(x, y, ewidth = 0, ...)
+    }
+  )
+
+print(plot_ccm_fitness_select)
 ```
 
