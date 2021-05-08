@@ -891,7 +891,7 @@ In order to obtain an overview about fitness contribution of central carbon meta
 
 ```{r, message = FALSE}
 df_ccm_enzymes <- list(
-  `Calvin cycle` = c("PGK", "TPI", "GAPD", "FBA", "FBP", "TKT1", "TKT2", "TAh", "RPE", "RPI", "PRUK", "RBPC", "FDH"),
+  `CBB cycle` = c("PGK", "TPI", "GAPD", "FBA", "FBP", "TKT1", "TKT2", "TAh", "RPE", "RPI", "PRUK", "RBPC", "FDH"),
   `Entner-Doudoroff pathway` = c("PGI", "G6PDH2r", "PGL", "EDD", "EDA"),
   `Pyruvate metabolism` = c("PGM", "ENO", "PYK", "PDH1", "PDH2", "PDH3", "PC", "PPC", "ME1", "ME2", "CS"),
   `TCA cycle` = c("ACONT1", "ACONT2", "ICDHx", "ICDHyr", "AKGDH", "SUCOAS", "SUCDi", "SUCD1", "FUM", "MDH", "MALS")
@@ -973,5 +973,24 @@ plot_ccm_fitness_select <- df_fitness %>% ungroup %>%
   )
 
 print(plot_ccm_fitness_select)
+```
+
+### Table with conditionally essential reactions in central metabolism
+
+```{r}
+df_ccm_essential <- df_model_reactions %>%
+  filter(reaction_id %in% c("FDH", "PPC", "PGL", "EDD", "EDA", "PDH1", "ME1", "ME2")) %>%
+  left_join(select(df_ref, locus_tag, gene_name), by = "locus_tag") %>%
+  left_join(select(df_fitness_comp, matches("locus|continuous")), by = "locus_tag") %>%
+  arrange(model_group_short, reaction_id, locus_tag) %>%
+  mutate(across(matches("continuous_"), round, 1)) %>%
+  mutate(gene_name = str_remove(gene_name, " ?H16\\_[AB0-9]+")) %>%
+  rename_with(function(x) gsub("continuous_", "", x), matches("continuous_")) %>%
+  rename(Pathway = model_group_short, Reaction = reaction_id,
+    `Reaction name` = reaction_name, `Gene ID` = locus_tag, `Gene name` = gene_name) %>%
+  select(c(4,1,2,3,5,6,7,8))
+
+print(df_ccm_essential)
+write_csv(df_ccm_essential, "../data/output/essentiality_ccm.csv")
 ```
 
