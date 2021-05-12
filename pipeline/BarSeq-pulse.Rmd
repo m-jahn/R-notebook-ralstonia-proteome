@@ -694,7 +694,6 @@ M-FDH --> Cytochrome C reductase (bc1 complex III) --> Cytochrome c553 () --> Cy
 What is known in literature about electron transport from formate to membrane?
 
 - main FDH is S-FDH both in terms of protein abundance, inducibility, and essentiality
-- 
 - cytochrome reductase bc1 complex (qcrABC) is **particularly important** during growth on formate (this study)
 - it is also **beneficial** during heterotrophic growth (slightly reduced fitness)
 - inhibition of this complex reduces growth in heterotrophy and lithotrophy (see Cramm 2006)
@@ -705,7 +704,6 @@ What is known in literature about electron transport from formate to membrane?
 - Cytochrome c553 proteins are e- shuttles in membrane, between bc1 and respiration complexes (?)
 - cbb3-type cytochrome oxidase special member of the heme-copper oxidase family
 - "in Bradyrhizobium japonicum, this enzyme operates at extremely low partial pressures of oxygen" [Preisig et al., 1996]
-- 
 
 
 ```{r}
@@ -992,5 +990,21 @@ df_ccm_essential <- df_model_reactions %>%
 
 print(df_ccm_essential)
 write_csv(df_ccm_essential, "../data/output/essentiality_ccm.csv")
+```
+
+### Export gene fitness table for Shiny
+
+Save an `Rdata` file with fitness data for all conditions that finally were used in the manuscript by Jahn et al., 2021.
+
+```{r}
+Cupriavidus_BarSeq_2021 <- df_fitness %>%
+  ungroup %>% select(-ID) %>%
+  unite(condition, substrate, condition, sep = " - ") %>%
+  mutate(fold_change = 2^log2FC) %>%
+  rename(fitness_score = norm_gene_fitness, t_stat = t, timepoint = time) %>%
+  left_join(select(df_ref, locus_tag, new_locus_tag, uniprot, gene_name, protein_name, System, 
+    Process, Pathway), by = "locus_tag")
+
+save(Cupriavidus_BarSeq_2021, file = "../../ShinyLib/data/Cupriavidus_BarSeq_2021.Rdata")
 ```
 
