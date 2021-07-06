@@ -39,7 +39,8 @@ vignettes/*.pdf
 .Renviron
 
 # archived or bulk data
-archived/*
 data/mapped/*
 data/pool/*.txt
 figures/*.png
+figures/figure_barseq_formate_scheme.svg
+pipeline/mutant_growth_rate_determination.R

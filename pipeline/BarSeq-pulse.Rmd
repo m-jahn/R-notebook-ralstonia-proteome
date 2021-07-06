@@ -4,16 +4,17 @@ date: "`r format(Sys.time(), '%d %B, %Y')`"
 author: "Michael Jahn"
 output:
   html_notebook: 
-    theme: spacelab
+    theme: cosmo
     toc: yes
+    number_sections: true
 ---
 
-## Description
+# Description
 
 This R notebook is a bioinformatics pipeline to analyze fitness data obtained from a barcoded transposon library in *Ralstonia eutropha* a.k.a. *Cupriavidus necator*. For background and details regarding the method, see [Wetmore at al., mBio, 2015](https://mbio.asm.org/content/6/3/e00306-15) and [Price et al., Nature, 2018](http://www.nature.com/articles/s41586-018-0124-0)).
 
 
-## Libraries
+# Libraries
 
 ```{r, message = FALSE}
 # optionally install repos from github
@@ -30,9 +31,9 @@ library(stringi)
 ```
 
 
-## Overview of barcode/transposon read counts
+# Overview of barcode/transposon read counts
 
-### Data import and processing
+## Data import and processing
 
 Read in the main data tables with A) reads per barcode and sample ('pool counts'), and B) the fitness tables. Tables were obtained by processing sequencing data with a custom [BarSeq pipeline](https://github.com/m-jahn/rebar). The 32 generation sequencing samples are removed due to the low read count in the `continuous` samples.
 
@@ -77,7 +78,7 @@ df_ref <- read_csv("../data/ref/Ralstonia_H16_genome_annotation.csv") %>%
 stdcol <- custom.colorblind()$superpose.line$col
 ```
 
-### Summary statistics
+## Summary statistics
 
 Overview about the number of reads per barcode, barcodes per gene and so on. Around 8-10 M reads were mapped on average, per sample. 
 
@@ -148,9 +149,9 @@ print(plot_reads_per_bc, split = c(1,1,2,1), more = TRUE)
 print(plot_reads_per_gene, split = c(2,1,2,1))
 ```
 
-## Gene fitness analysis
+# Gene fitness analysis
 
-### Depletion over time (generations)
+## Depletion over time (generations)
 
 We can plot log2 FC or normalized gene fitness over generations. For this type of overview it is best to summarize individual replicates (4x) to the mean or median, per time point and condition. We also add genome annotation to the summary table. The plots shows that depletion of some strains is so strong already at 8 generations that fitness/log2 FC could not be quantified for 16 generations due to missing read counts. It is best to focus on 8 generations as because it provides a more complete picture.
 
@@ -231,7 +232,7 @@ df_fitness_summary %>%
   )
 ```
 
-### Comparing gene fitness between conditions
+## Comparing gene fitness between conditions
 
 Similarly to Figure 2 in [Wetmore et al, mBIO, 2015](https://mbio.asm.org/content/6/3/e00306-15), we can investigate condition-dependent gene fitness by comparing conditions and substrates one-on-one. The correlation between substrates and growth regimes (continuous, pulsed) is quite different. The strongest correlation does exist for the pulsed vs continuous regime for each substrate (R = 0.64 to 0.87). And for the pulsed conditions, comparison between substrates (R = 0.62 to 0.72).
 
@@ -280,7 +281,7 @@ plot_fitness_comp(df_fitness_comp, c("continuous_formate", "continuous_fructose"
   print(position = c(0.5,0,1,0.5), more = TRUE)
 ```
 
-### Differential fitness of selected genes
+# Differential fitness of selected gene sets
 
 Most genes correlate in fitness value between conditions. That means, only some genes have a **condition-specific fitness effect**, i.e. increase or decrease fitness of the respective strain in one substrate or growth regime specifically. This section investigates specific genes and their functions that show such differential fitness between conditions. A simple comparison of one condition versus another will not be helpful as there two many possible combinations. To identify interesting sets of genes, cluster analysis can be performed.
 
@@ -364,7 +365,7 @@ dev.off()
 ```
 
 
-### Enrichment of mutants over time (increased fitness)
+## Enrichment of mutants over time (increased fitness)
 
 One of the most puzzling results is the appearance of (very) fast growing mutants in some conditions. These mutants quickly enrich over only 16 generations to a volume of up to 20% of all library mutants, they "take over the culture". This phenomenon was not observed previously in experiments with the *Synechocystis* sp. PCC6803 CRISPRi repression library (Yao et al., Nature Communications, 2020). The CRISPRi library is based on the same principle of depletion and enrichment of mutants depending on the associated fitness.
 
@@ -621,7 +622,7 @@ df_fitness %>% filter(time == 16, counts > 5*10^5) %>%
 ```
 
 
-### Depletion of mutants over time (reduced fitness)
+## Depletion of mutants over time (reduced fitness)
 
 #### Depletion on formate
 
@@ -804,7 +805,7 @@ graph_all_depl %>% arrange(COG_Process) %>% activate(edges) %>%
     plot_margin = margin(10, 10, 10, 10))
 ```
 
-### Fitness of *cbb* genes
+## Fitness of *cbb* genes
 
 One of the most interesting features of *C. necator* is the *cbb* operon encoding enzymes for PPP and Calvin cycle (e.g. Rubisco). Two almost identical copies of the operon are present in the genome, one on the pHG1 megaplasmid and one one chromosome 2. The latter one has two additional genes, a putative *cbbB* formate dehydrogenase, and *cbbR*, the transcriptional regulator.
 To visualize general trends for all genes of a pathway, we can use a beeswarm plot broken down by condition.
@@ -882,8 +883,64 @@ print(plot_cbb_fitness_select, position = c(0.36, 0, 1, 1))
 dev.off()
 ```
 
+## Fitness of phosphoglycolate salvage mutants
 
-### Fitness of central metabolism genes
+Phosphoglycolate salvage, also known as photorespiration, is the process of recycling the product of Rubisco's oxygenation reaction, 2-phoshoglycolate (2-PGly). Depending on the local CO2 concentration around Rubisco, the flux towards 2-PGly becomes higher with decreasing CO2 concentration. Typically, flux towards 2-PGly increases signifcantly between ... and ... ppm CO2 [Reference?]. The following plot shows fitness of the most important 2-PGly salvage KO mutants.
+
+The key enzymes for the universal 'upper part' of 2-PGly salvage are 2-PGly-phosphatase (cbbZ2, cbbZP) and glycolate dehydrogenase GDH (GlcDEF, ). The glycerate pathway is the dominant route for the 'lower part' of 2-PGly salvage with four enzymes being strongly upregulated in low CO2: glyoxylate carboligase GLXCL (H16_A3598), hydroxypyruvate isomerase HPYRI (H16_A3599), tartronate semialdehyde reductase TRSARr (H16_A3600), and glycerate kinase GLYCK (H16_B0612). The first three of these enzymes are encoded in one operon.
+
+```{r, fig.width = 7, fig.height = 5.0}
+df_fitness %>% ungroup %>%
+  left_join(select(df_ref, locus_tag, gene_name), by = "locus_tag") %>%
+  filter(
+    locus_tag %in% c("H16_B1387", "PHG419", "H16_A3094", "H16_A3096", "H16_A3097",
+      "H16_A3598", "H16_A3599", "H16_A3600", "H16_B0612", "H16_A0640", "H16_A0641",
+      "H16_A0642", "H16_A0644"),
+    condition == "pulse") %>%
+  mutate(gene_name = str_replace(gene_name, " cbbZ2", "")) %>%
+  
+  xyplot(norm_gene_fitness ~ factor(time) | factor(gene_name, rev(unique(gene_name))), .,
+    groups = substrate, par.settings = custom.lattice(col = subs_col[c(1,3,5)]),
+    type = c("p", "l"), xlab = "generations", ylab = "fitness",
+    ylim = c(-7.9, 2.5), layout = c(5, 3), between = list(x = 0.5, y = 0.5),
+    scales = list(alternating = FALSE), lwd = 2.5, as.table = TRUE,
+    panel = function(x, y, ...) {
+      panel.grid(h = -1, v = -1, col = grey(0.9))
+      panel.errbars(x, y, ewidth = 0, ...)
+      panel.key(..., corner = c(0.05, 0.05))
+    }
+  )
+```
+
+
+**Possible explanation: local CO2 concentration is high during formatotrophic growth**
+
+Question: What is steady-state CO2/HCO3-concentration in medium?
+
+Known cultivation parameters for highest growth rate:
+
+- medium concentration: 1.5 g/L formate
+- growth rate/dilution rate: 0.25 h^-1
+- residual formate at µ = 0.25 h^-1: 0.25 g L^-1
+- 25% of CO2 from formate is fixed, 75% is emitted (*C. necator* GEM)
+
+Answer:
+
+- formate consumption rate: Q_HCOO3 = (1.5 g L^-1 - 0.25 g L^-1) * 0.25 h^-1 = 0.31 g formate L^-1 h^-1
+- estimation of CO2 production rate: P_CO2 = Q_HCOO3 * MW_HCOO3 = 0.31 g L^-1 h^-1 / 48 g mol^-1 = 6.5 mmol L^-1 h^-1
+- estimation of CO2 consumption rate: Q_CO2 = P_CO2 * 0.25 =  1.625 mmol L^-1 h^-1
+- final CO2 production rate: P_CO2 - Q_CO2 = 4.875 mmol L^-1 h^-1
+
+Unfortunately it is not possible to determine the steady-state concentration from the CO2 emission rate. However we can compare this rate with the growth-limiting CO2 supply for autotrophic growth (ambient air, Claassens et al., 2020).
+The authors used:
+
+- 0.04% CO2 or 10% CO2, 6.25 L/min = 375 L/h
+- 0.7L culture volume
+- density of CO2 = 1.836 g/L at 25*C
+- CO2 supply rate = 375 L h^-1 * 0.0004 / 0.7 L culture * 1.836 g L^-1 = 0.39 g L^-1 h^-1 = 8.5 mmol L^-1 h^-1
+
+
+## Fitness of central metabolism genes
 
 In order to obtain an overview about fitness contribution of central carbon metabolism enzymes, we can select the same list of enzymes (reactions) that was used for Figure 3 of the manuscript. In this figure, absolute protein abundance, relative change in protein abundance, utilization was compared. The names of enzymatic reactions are taken from the genome scale modeland have to be mapped to gene IDs.
 
@@ -973,7 +1030,7 @@ plot_ccm_fitness_select <- df_fitness %>% ungroup %>%
 print(plot_ccm_fitness_select)
 ```
 
-### Table with conditionally essential reactions in central metabolism
+## Table with conditionally essential reactions in central metabolism
 
 ```{r}
 df_ccm_essential <- df_model_reactions %>%
@@ -992,9 +1049,10 @@ print(df_ccm_essential)
 write_csv(df_ccm_essential, "../data/output/essentiality_ccm.csv")
 ```
 
-### Export gene fitness table for Shiny
+# Export gene fitness data
 
 Save an `Rdata` file with fitness data for all conditions that finally were used in the manuscript by Jahn et al., 2021.
+This is used in the [ShinyLib](https://m-jahn.shinyapps.io/ShinyLib/) web app.
 
 ```{r}
 Cupriavidus_BarSeq_2021 <- df_fitness %>%
