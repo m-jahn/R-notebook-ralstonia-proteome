@@ -3,26 +3,29 @@ title: "Physiological measurements from *R. eutropha* chemostats"
 date: "`r format(Sys.time(), '%d %B, %Y')`"
 output:
   html_notebook: 
-    theme: spacelab
+    theme: cosmo
     toc: yes
+    number_sections: true
 ---
 
-## Description
+# Description
 
 This R notebook contains data and analysis regarding physiological measurements obtained from chemostat cultivations of *Ralstonia eutropha* (a.k.a. *Cupriavidus necator*).
 
-## Libraries
+# Libraries
 
 ```{r, messages = FALSE}
-library(lattice)
-library(latticeExtra)
-library(latticetools)
-library(tidyverse)
+suppressPackageStartupMessages({
+  library(lattice)
+  library(latticeExtra)
+  library(latticetools)
+  library(tidyverse)
+})
 ```
 
-## Chemostat cultivation, biomass and growth rate
+# Chemostat cultivation, biomass and growth rate
 
-### Import and reshape cultivation data
+## Import and reshape cultivation data
 
 First we load the three cultivation data tables. These contain all four limiting conditions. We are thinning out the OD measurement data by 75% so that file sizes become smaller and more plottable.
 
@@ -37,7 +40,7 @@ df_chem <- read.csv("../data/input/20180921_chemostat_OD.csv") %>%
   slice_sample(n = 4000)
 ```
 
-### OD and growth rate
+## OD and growth rate
 
 The next step is to plot the OD<sub>720</sub> and growth rate for all cultivations.
 
@@ -73,10 +76,9 @@ plot_dil <- xyplot(dilution_rate ~ batchtime_h | condition,
 print(doubleYScale(plot_OD, plot_dil, use.style = FALSE, add.ylab2 = TRUE, under = TRUE))
 ```
 
-### Calculate biomass yield and maintenance
+## Residual substrate concentration
 
-
-First we summarize average OD and growth rate for all cultivations leaving out the first 25 h batch growth phase.
+The residual substrate (carbon sources only) was determined using HPLC measurement. In order to merge cultivation and residual substrate measurements, we summarize average OD and growth rate for all cultivations leaving out the first 25 h batch growth phase.
 
 ```{r, message = FALSE}
 df_summary <- filter(df_chem, batchtime_h > 25) %>%
@@ -89,14 +91,15 @@ df_summary <- filter(df_chem, batchtime_h > 25) %>%
   mutate(c_substrate = case_when(
     condition == "ammonium" ~ 0.025,
     condition == "formate" ~ 1.0,
-    TRUE ~ 0.5
+    condition == "fructose" ~ 0.5,
+    condition == "succinate" ~ 0.5
   ))
 ```
 
-For yield calculations, the residual substrate (mg) needs to be subtracted from feed substrate concentration (g) to determine portion of substrate that is taken up.
+The residual substrate measurement is imported, and merged with the cultivation summary table. For concnetration of substrate that is really taken up is calculated by subtracting the residual substrate (mg) from feed substrate concentration (g).
 
 ```{r, message = FALSE}
-df_residual <- read_csv("../data/input/20181116_chemostat_residual_substrate.csv") %>%
+df_residual <- read_csv("../data/input/20181116_chemostat_residual_substrate.csv", col_types = cols()) %>%
   rename(condition = limitation) %>%
   mutate(condition = recode(condition, `formic acid` = "formate", `Nlim - fructose` = "ammonium")) %>%
   mutate(c_residual_g_L = mean_concentration_mg.L/1000 %>% replace(., . < 0, 0))
@@ -110,23 +113,141 @@ df_summary <- left_join(df_summary, df_residual %>%
 print(head(df_summary))
 ```
 
-Nest step is to add the DCW in g/L depending on OD and condition. The DCW-OD relationship was determined previously by a master student (Raquel Perruca) using a dilution series. It was found to be `gDCW = 0.5177 * OD_720nm - 0.0108`. The relationship for ammonium-limited cells was redetermined in a separate calibration experiment (2020-07-30, 50 mL shake flask culture), as extreme PHB content in these cells changed light scattering/absorption. The gDCW per OD for ammonium-limitation was corrected based on this result.
+```{r, fig.width = 6, fig.height = 2.5}
+plot_residual <- xyplot(concentration_mg.L ~ factor(dilution_rate) | condition,
+  df_residual,
+  par.settings = custom.colorblind(), as.table = TRUE,
+  pch = 19, ylim = c(-50, 1450), layout = c(4, 1),
+  between = list(x = 0.5, y = 0.5),
+  scales = list(alternating = FALSE, x = list(at = c(1,3,5))),
+  xlab = expression("µ [h"^-1*"]"), ylab = "concentration [mg/L]",
+  panel = function(x, y, ...) {
+    panel.grid(h = -1, v = -1, col = grey(0.9))
+    panel.barplot(x, y, ewidth = 0.3, lwd = 2, fill = "white", fill_alpha = 1, ...)
+    panel.xyplot(x, y, alpha = 0.3, ...)
+  }
+)
 
-We calculate substrate uptake rate q_S with the corrected substrate concentration (S_uptake = S_feed - S_residual). The rate `qS` is then dilution rate times feed concentration divided by biomass in the culture: `qS [g/OD720*L] = D [h-1] * c [g/L] / OD720`. All other following calculations are just variations of OD conversion to gDCW/L, or converting g to C/N-mole.
-  
+print(plot_residual)
+```
+
+```{r, include = FALSE}
+# silently export figure
+svg("../figures/figure_chemostat_cult.svg", width = 5, height = 7.5)
+print(doubleYScale(plot_OD, plot_dil, use.style = FALSE, add.ylab2 = TRUE, under = TRUE), 
+  position = c(0,0.27,1.07,1), more = TRUE)
+print(plot_residual, position = c(-0.01,0,0.975,0.32))
+dev.off()
+```
+
+## DCW and PHB content of cells
+
+The next step is to add biomass concentration (DCW) in g/L. For carbon limitations, the DCW was determined in a separate series of 50 mL shake flask cultivations with substrate concentration identical to chemostat experiments (fructose: 0.5 g/L, succinate 0.5 g/L). The concentration of formate was doubled to obtain sufficient biomass for DCW measurement (2.0 g/L). For ammonium limitation, the cultivation was reproduced in chemostats with an N-limiting concentration of 0.05 g/L NH4Cl and non-limiting carbon concentration of 2.0 g/L fructose.
+
+
+```{r, fig.width = 7.5, fig.height = 6}
+df_DCW_PHB <- bind_rows(
+  read_csv("../data/input/20210810_gDCW_carbon_lim.csv", col_types = cols()),
+  read_csv("../data/input/20210810_gDCW_nitrogen_lim.csv", col_types = cols())
+) %>%
+  filter(condition != "ammonium WT") %>%
+  mutate(condition = condition %>% str_replace(" ", "\n") %>%
+    str_replace("ammonium", "ammon."))
+
+# plot total gDCW and total gPHB
+plot_PHB_Clim <- xyplot(g_DCW_L + g_PHB_L ~ factor(condition),
+  filter(df_DCW_PHB, !str_detect(condition, "ammon")),
+  par.settings = custom.colorblind(), ylim = c(0, 0.3),
+  lwd = 2, xlab = "", ylab = expression("g L"^-1),
+  panel=function(x, y, ...) {
+    panel.grid(h = -1, v = -1, col = grey(0.9))
+    panel.barplot(x, y, beside = TRUE, draw_points = TRUE, ...)
+    panel.annotate(x, y, offset = 0.04, digits = 3, beside = TRUE, cex = 0.7, ...)
+    panel.key(groups = c("g DCW/L", "g PHB/L"), corner = c(0.95, 0.95))
+  }
+)
+
+plot_PHB_Nlim <- xyplot(g_DCW_L + g_PHB_L ~ factor(condition, unique(condition)[c(2:6,1)]),
+  filter(df_DCW_PHB, str_detect(condition, "ammon")),
+  par.settings = custom.colorblind(), ylim = c(0, 0.3),
+  lwd = 2, xlab = "", ylab = expression("g L"^-1),
+  panel=function(x, y, ...) {
+    panel.grid(h = -1, v = -1, col = grey(0.9))
+    panel.barplot(x, y, beside = TRUE, draw_points = TRUE, ...)
+    panel.annotate(x, y, offset = 0.04, digits = 3, beside = TRUE, cex = 0.7, ...)
+    panel.key(groups = c("g DCW/L", "g PHB/L"), corner = c(0.95, 0.95))
+  }
+)
+
+# plot yield on substrate (excluding PHB)
+plot_yield_Clim <- xyplot(g_DCW_g_substrate_noPHB ~ factor(condition),
+  filter(df_DCW_PHB, !str_detect(condition, "ammon")),
+  par.settings = custom.colorblind(), ylim = c(-0.02, 0.52),
+  lwd = 2, xlab = "", ylab = expression("g DCW g S"^-1),
+  panel=function(x, y, ...) {
+    panel.grid(h = -1, v = -1, col = grey(0.9))
+    panel.barplot(x, y, draw_points = TRUE, ...)
+    panel.annotate(x, y, offset = 0.1, digits = 3, cex = 0.7, ...)
+  }
+)
+
+plot_yield_Nlim <- xyplot(g_DCW_g_substrate_noPHB ~ 
+    factor(condition, unique(condition)[c(2:6,1)]),
+  filter(df_DCW_PHB, str_detect(condition, "ammon")),
+  par.settings = custom.colorblind(), ylim = c(-0.1, 2.4),
+  lwd = 2, xlab = "", ylab = expression("g DCW g S"^-1),
+  panel=function(x, y, ...) {
+    panel.grid(h = -1, v = -1, col = grey(0.9))
+    panel.barplot(x, y, draw_points = TRUE, ...)
+    panel.annotate(x, y, offset = 0.5, digits = 3, cex = 0.7, ...)
+  }
+)
+
+print(plot_PHB_Clim, position = c(0,0.49,0.42,1), more = TRUE)
+print(plot_PHB_Nlim, position = c(0.38,0.463,1,1), more = TRUE)
+print(plot_yield_Clim, position = c(0.01,0,0.42,0.51), more = TRUE)
+print(plot_yield_Nlim, position = c(0.39,-0.027,1,0.51))
+grid::grid.text(c("A", "B", "C", "D"), x = c(0.03, 0.4, 0.03, 0.4),
+  y = c(0.97, 0.97, 0.48, 0.48), gp = grid::gpar(cex = 1.2))
+```
+```{r, include = FALSE}
+svg("../figures/figure_DCW_PHB.svg", width = 7.5, height = 6.0)
+print(plot_PHB_Clim, position = c(0,0.49,0.42,1), more = TRUE)
+print(plot_PHB_Nlim, position = c(0.38,0.463,1,1), more = TRUE)
+print(plot_yield_Clim, position = c(0.01,0,0.42,0.51), more = TRUE)
+print(plot_yield_Nlim, position = c(0.39,-0.027,1,0.51))
+grid::grid.text(c("A", "B", "C", "D"), x = c(0.03, 0.4, 0.03, 0.4),
+  y = c(0.97, 0.97, 0.48, 0.48), gp = grid::gpar(cex = 1.2))
+dev.off()
+```
+
+## Calculate biomass yield and maintenance
+
+The substrate uptake rate `qS` is calculated using the corrected substrate concentration (S_uptake = S_feed - S_residual). The rate `qS` is then dilution rate times feed concentration divided by experimentally determined biomass in the culture (excluding PHB): `qS [g/gDCW] = D [h-1] * c [g/L] / biomass [gDCW/L]`. The DCW for formate and ammonium was determined using twice the original concentration, hence the g DCW is divided by two for compatibility.
+
 ```{r}
-df_summary <- df_summary %>% mutate(gDCW_L = case_when(
-    condition != "ammonium" ~ (0.5177*OD720)-0.0108,
-    condition == "ammonium" ~ (0.2766*OD720)-0.0108
-  )) %>%
+df_summary <- df_DCW_PHB %>%
+  filter(condition != "ammon.\nPHB-") %>%
+  mutate(condition = str_replace(condition, "ammon.\nu=.*", "ammonium")) %>%
+  group_by(condition, growth_rate) %>%
   
-  # substrate uptake rate per OD
-  # qS [g/OD720*L] = D [h-1] * c [g/L] / OD720
-  mutate(qS_g_OD720 = dilution_rate*(c_substrate-c_residual_g_L)/OD720) %>%
+  # summarize replicates to mean biomass and PHB
+  summarise(.groups = "drop",
+    g_DCW_L = mean(g_DCW_L_noPHB),
+    g_PHB_L = mean(g_PHB_L)) %>%
+  mutate(g_DCW_L = case_when(condition %in% c("formate", "ammonium") ~ g_DCW_L/2, TRUE ~ g_DCW_L)) %>%
+  mutate(g_PHB_L = case_when(condition %in% c("formate", "ammonium") ~ g_PHB_L/2, TRUE ~ g_PHB_L)) %>%
   
+  # fill missing conditions (growth rates), and merge with main df
+  rename(dilution_rate = growth_rate) %>%
+  replace_na(list(dilution_rate = 0.05)) %>%
+  complete(condition, dilution_rate) %>%
+  fill(g_DCW_L, g_PHB_L) %>%
+  right_join(df_summary) %>%
+
   # substrate uptake rate per gDCW
   # qS [g/gDCW] = D [h-1] * c [g/L] / gDCW * L
-  mutate(qS_g_gDCW = dilution_rate*(c_substrate-c_residual_g_L)/gDCW_L) %>%
+  mutate(qS_g_gDCW = dilution_rate*(c_substrate-c_residual_g_L)/g_DCW_L) %>%
   
   # substrate uptake rate in C-mol per C-mol biomass (25.35 gDCW/Cmol = 0.03944 Cmol/gDCW)
   # (source: Grunwald et al., Mirco Biotech, 2015)
@@ -143,16 +264,14 @@ df_summary <- df_summary %>% mutate(gDCW_L = case_when(
     condition == "ammonium" ~ qS_g_gDCW * Cmol_g / (0.03944/4),
     TRUE ~ qS_g_gDCW * Cmol_g / 0.03944
   ))
-
-head(df_summary)
 ```
 
 Finally we can create a so-called Herbert-Pirt plot, that is growth rate versus substrate uptake rate. This plot will usually reveal a linear relationship, meaning that substrate uptake and growth are proportional to each other. If there is a kink (change in slope) of the data and one linear model would not be sufficient to describe the data, then the yield has changed, i.e. cells start using a different pathway for energy generation (e.g. respiration versus fermentation). In the default scenario (linear relationship), the yield is the slope of the linear model and the maintenance coeffcient is the intersection with the Y axis.
 
-```{r, fig.width = 6.7, fig.height = 6.7}
+```{r, fig.width = 6.5, fig.height = 6.5}
 HP_plot <- function(data, xlimits = c(0, 0.3), ylimits = c(0, 1)) {
   xyplot(qS_g_gDCW ~ dilution_rate | condition, data,
-    par.settings = custom.lattice, lwd = 1.5,
+    par.settings = custom.colorblind(), lwd = 1.5,
     xlim = xlimits, ylim = ylimits,
     ylab = expression("q"[S]*" [g h"^-1*" gDCW"^-1*"]"),
     xlab = expression('µ [h'^'-1'*']'),
@@ -161,8 +280,7 @@ HP_plot <- function(data, xlimits = c(0, 0.3), ylimits = c(0, 1)) {
       panel.xyplot(x, y, cex = 0.9, ...)
       # regression line through linear part of the data (omit µ = 0.25/h)
       sel <- x != 0.25; x = x[sel]; y = y[sel]
-      panel.lmlineq(x, y, fontfamily = "FreeSans", 
-        pos = 3, offset = 7, r.squared = TRUE, cex = 0.7, col.text = grey(0.3), ...)
+      panel.lmline(x, y, ...)
       coef <- lm(y ~ x, data.frame(x, y))$coeff
       # displaying maintenance and yield coefficients
       panel.abline(h = coef[[1]], lty = 2, ...)
@@ -177,166 +295,77 @@ HP_plot <- function(data, xlimits = c(0, 0.3), ylimits = c(0, 1)) {
 }
 
 print(HP_plot(data = filter(df_summary, condition == "formate"),
-  ylimits = c(-7/4, 7)), split = c(1,1,2,2), more = TRUE)
+  ylimits = c(-7/4, 7)), position = c(0.017,0.5,0.5,1), more = TRUE)
 print(HP_plot(data = filter(df_summary, condition == "fructose"),
-  ylimits = c(-1.5/4, 1.5)), split = c(2,1,2,2), more = TRUE)
+  ylimits = c(-1.5/4, 1.5)), position = c(0.5,0.5,1,1), more = TRUE)
 print(HP_plot(data = filter(df_summary, condition == "ammonium"),
-  ylimits = c(-0.25/4, 0.25)), split = c(1,2,2,2), more = TRUE)
+  ylimits = c(-0.25/4, 0.25)), position = c(-0.017,0,0.5,0.5), more = TRUE)
 print(HP_plot(data = filter(df_summary, condition == "succinate"),
-  ylimits = c(-1.5/4, 1.5)), split = c(2,2,2,2))
+  ylimits = c(-1.5/4, 1.5)), position = c(0.5,0,1,0.5))
 ```
 
 
 ```{r, include = FALSE}
 # silently export figure
-svg("../figures/figure_growth_vs_uptake.svg", width = 6.7, height = 6.7)
+svg("../figures/figure_growth_vs_uptake.svg", width = 6.5, height = 6.5)
 print(HP_plot(data = filter(df_summary, condition == "formate"),
-  ylimits = c(-7/4, 7)), split = c(1,1,2,2), more = TRUE)
-print(HP_plot(data = filter(df_summary, condition=="fructose"),
-  ylimits = c(-1.5/4, 1.5)), split = c(2,1,2,2), more = TRUE)
-print(HP_plot(data = filter(df_summary, condition=="ammonium"),
-  ylimits = c(-0.25/4, 0.25)), split = c(1,2,2,2), more = TRUE)
-print(HP_plot(data = filter(df_summary, condition=="succinate"),
-  ylimits = c(-1.5/4, 1.5)), split = c(2,2,2,2))
+  ylimits = c(-7/4, 7)), position = c(0.017,0.5,0.5,1), more = TRUE)
+print(HP_plot(data = filter(df_summary, condition == "fructose"),
+  ylimits = c(-1.5/4, 1.5)), position = c(0.5,0.5,1,1), more = TRUE)
+print(HP_plot(data = filter(df_summary, condition == "ammonium"),
+  ylimits = c(-0.25/4, 0.25)), position = c(-0.017,0,0.5,0.5), more = TRUE)
+print(HP_plot(data = filter(df_summary, condition == "succinate"),
+  ylimits = c(-1.5/4, 1.5)), position = c(0.5,0,1,0.5))
 dev.off()
 ```
 
-
-A similar plot could be made for C-mole and N-mole per C-mole biomass instead of [gram] units. Since the data is similar and only the units change, we just extract the slope and intercept of the four linear models for each substrate.
-
-```{r, message = FALSE}
-get_lm_coeff <- function(x, y) {
-  linmod <- lm(y ~ x, data.frame(x = x, y = y))
-  c(round(linmod$coeff[[1]], 3), round(1/linmod$coeff[[2]], 3))
-}
-df_summary %>% group_by(condition) %>%
-  summarize(value = get_lm_coeff(dilution_rate, qS_Cmol_Cmol_DCW)) %>% 
-  ungroup %>%
-  mutate(variable = rep(c("mS [Cmole Cmole_DCW-1 h-1]", "Yx/S [Cmole DCW Cmole-1]"), 4))
-```
-
-
-
-### Biomass, residual substrate
-
-This is just an auxiliary plot for the cultivation overview of OD and growth rate from above. In this plot, the average biomass concentration is shown per condition.
-
-```{r, fig.width = 6, fig.height =2.5}
-xyplot(gDCW_L ~ factor(dilution_rate) | condition, df_summary,
-  as.table = FALSE, xlab = "µ [h-1]", ylab = "biomass [gDCW/L]",
-  between = list(x = 0.7, y = 0.7),
-  scales = list(alternating = FALSE), lwd = 3,
-  par.settings = custom.colorblind(), layout = c(4, 1),
-  pch = 19, ylim = c(-0.02, 0.27),
-  panel = function(x, y, ...) {
-    panel.grid(h = -1, v = -1, col = grey(0.9))
-    panel.errbars(x, y, ewidth = 0, ...)
-  }
-)
-```
-Finally for this section we can plot raw measurements using double Y scale (% and ppm)
-
-```{r, fig.width = 6, fig.height = 2.5}
-plot_residual <- xyplot(concentration_mg.L ~ factor(dilution_rate) | condition,
-  df_residual,
-  par.settings = custom.colorblind(), as.table=TRUE,
-  pch = 19, ylim = c(-50, 1450), layout = c(4, 1),
-  between = list(x = 0.5, y = 0.5),
-  scales = list(alternating = FALSE, x = list(at = c(1,3,5))),
-  xlab = expression("µ [h"^-1*"]"), ylab = "concentration [mg/L]",
-  panel = function(x, y, ...) {
-    panel.grid(h = -1, v = -1, col = grey(0.9))
-    panel.barplot(x, y, ewidth = 0.3, lwd = 2, fill = "white", fill_alpha = 1, ...)
-    panel.xyplot(x, y, alpha = 0.3, ...)
-  }
-)
-
-print(plot_residual)
-```
 
 
 ```{r, include = FALSE}
-# silently export figure
-svg("../figures/figure_chemostat_cult.svg", width = 5, height = 7.5)
-print(doubleYScale(plot_OD, plot_dil, use.style = FALSE, add.ylab2 = TRUE, under = TRUE), 
-  position = c(0,0.27,1.07,1), more = TRUE)
-print(plot_residual, position = c(-0.01,0,0.975,0.32))
-dev.off()
-```
-
-
-## PHB content of cells
-
-The following section analyzes data obtained from chemostat cultivations of the *R. eutropha* wild type (WT, PHB+) and a PHB knockout mutant (PHB-) obtained by random mutagenesis. Both strains were cultivated in chemostats with stepwise increase of dilutiuon rate (equals growth rate). Different parameters of these cultivations were determined among, those poly-hydroxybutyrate (PHB) content. PHB content was determined using Nile red staining (relative, not absolute quantification).
-
-First we import PHB quantification data per growth rate.
-
-```{r, message = FALSE}
-df <- read_csv("../data/input/20190716_chemostat_PHB.csv")
-```
-
-Next we reshape and filter the data a bit.
-
-```{r}
-df <- filter(df, mu <= 0.3) %>%
-  mutate(condition = recode(
-    condition, "C-limitation" = "fructose", "N-limitation" = "ammonium")) %>%
+# TEST AREA: substrate uptake rate for PHB (N-LIM) 
+# bundle ammonium data in a single df
+df_summary %>%
+  filter(condition == "ammonium") %>%
+  left_join(df_residual %>%
+    filter(condition == "ammonium") %>%
+    select(condition, dilution_rate, c_residual_g_L) %>%
+    rename(frc_residual_g_L = c_residual_g_L) %>%
+    distinct()) %>%
   
-  mutate(replicate = if_else(channel > 4, channel-4, channel))
+  # calculate fructose uptake rates for N-limitation (per total biomass, 
+  # per PHB, per PHB-free cell mass) 
+  mutate(
+    qS_g_gALL = dilution_rate*(2.0-frc_residual_g_L)/(g_DCW_L+g_PHB_L),
+    qS_g_gPHB = qS_g_gALL * g_PHB_L/(g_DCW_L+g_PHB_L),
+    qS_g_gDCW = qS_g_gALL * g_DCW_L/(g_DCW_L+g_PHB_L)
+  ) %>%
 
-head(df)
+  xyplot(qS_g_gPHB + qS_g_gDCW + qS_g_gALL ~ dilution_rate, .,
+    par.settings = custom.colorblind(), lwd = 1.5,
+    ylab = expression("q"[S]*" [g h"^-1*" gDCW"^-1*"]"),
+    xlab = expression('µ [h'^'-1'*']'),
+    panel = function(x, y, ...) {
+      panel.grid(h = -1, v = -1, col = grey(0.9))
+      panel.xyplot(x, y, cex = 0.9, ...)
+      panel.key(...)
+    }
+  )
+}
 ```
 
-Then we plot relative PHB content over growth rate. In a second step we *estimate* absolute PHB content by using data from the literature as help. We can set the maximum observed Nile Red fluorescence to the average relative PHB content obtained under N limitation as reported in the literature. For example Steinbuechel & Schlegel, AMB, 1989 reported a PHB content of 0.4 g/g protein under N-limitation. With 0.65 g protein/gDCW, that equals 0.4 x 0.65 = 0.26 g/gDCW PHB. A second reference, Wu *et al*., Kor J Chem Eng, 2009, determined that up to 41.8% biomass is PHB (= 0.41 g/gDCW).
-
-```{r, fig.width = 5, fig.height = 3}
-plot_NR_fluorescence <- xyplot(I_nr/OD720_nr/10^6 ~ factor(mu) | condition,
-  df, groups = strain,
-  par.settings = custom.colorblind(), 
-  pch = 19, lwd = 2,
-  as.table = TRUE, between = list(x = 0.5, y = 0.5),
-  xlab = expression("µ [h"^-1*"]"), 
-  ylab = expression("FI"["nile red"]*" OD"[720]*""^-1),
-  scales = list(alternating = FALSE),
-  panel=function(x, y, ...) {
-    panel.grid(h = -1, v = -1, col = grey(0.9))
-    panel.errbars(x, y, ewidth = 0, ...)
-    panel.key(..., which.panel = 2, corner = c(0.9, 0.9))
-  }
-)
-
-
-df <- df %>% mutate(
-  rel_PHB_g_gDCW = I_nr/OD720_nr/max(I_nr/OD720_nr)*0.41
-)
-
-plot_rel_PH_content <- xyplot(rel_PHB_g_gDCW ~ factor(mu) | condition,
-  df, groups = strain,
-  ylab = expression("PHB [g gDCW"^-1*"]"),
-  panel=function(x, y, ...) {
-    panel.errbars(x, y, ewidth = 0, ...)
-  }
-)
-
-doubleYScale(plot_NR_fluorescence,
-  plot_rel_PH_content, use.style = FALSE, add.ylab2 = TRUE) %>% print
-```
-
-```{r, include = FALSE}
-# silently export svg figures
-svg("../figures/figure_PHB_content.svg", width = 5, height = 3)
-doubleYScale(plot_NR_fluorescence,
-  plot_rel_PH_content, use.style = FALSE, add.ylab2 = TRUE) %>% print
-dev.off()
-```
 
 ## O<sub>2</sub> consumption and CO<sub>2</sub> emission
 
 Outlet gas composition was analyzed with specific optical sensors for O<sub>2</sub> and CO<sub>2</sub>.
-The gas uptake rate can then be determined knowing the input concentration, output concentration, flow rate per reactor, and biomass concentration per reactor. First load raw measurement data.
+The gas uptake rate can then be determined knowing the input concentration, output concentration, flow rate per reactor, and biomass concentration per reactor. First load biomass and gas concentration raw measurements.
 
 ```{r, message = FALSE}
-df_gas <- read_csv("../data/input/20190728_chemostat_gas.csv")
+df_chemostat_Nlim <- read_csv("../data/input/20190716_chemostat_PHB.csv", col_types = cols()) %>%
+  filter(mu <= 0.3) %>% mutate(condition = recode(
+    condition, "C-limitation" = "fructose", "N-limitation" = "ammonium")) %>%
+  mutate(replicate = if_else(channel > 4, channel-4, channel))
+
+df_gas <- read_csv("../data/input/20190728_chemostat_gas.csv", col_types = cols())
 ```
 
 Next we summarize all measurements to one measurement per condition and replicate. Then we use measurements for the replicates to calculate the mean gas uptake and emission rate normalized to biomass concentration.
@@ -358,7 +387,7 @@ df_gas <- df_gas %>%
   
   # obtain biomass concentration from first table
   ungroup %>% left_join(
-    group_by(df, strain, condition, mu) %>%
+    group_by(df_chemostat_Nlim, strain, condition, mu) %>%
     summarize(gDCW_mL = mean(`DCW [g/ml]`, na.rm = TRUE)) %>% 
     ungroup
     )
@@ -376,10 +405,9 @@ df_gas <- df_gas %>%
   
   # add volume to mass conversion
   mutate(m_gas_mg_mL = if_else(type == "CO2", 1.842, 1.314)) %>%
-  
   mutate(
-  q_mL_min_gDCW = flow_mL_min / (gDCW_mL * 65),
-  q_g_h_gDCW = q_mL_min_gDCW * m_gas_mg_mL * 60 / 1000
+    q_mL_min_gDCW = flow_mL_min / (gDCW_mL * 65),
+    q_g_h_gDCW = q_mL_min_gDCW * m_gas_mg_mL * 60 / 1000
   )
 
 head(df_gas)
@@ -421,6 +449,7 @@ plot_O2_up <- xyplot(q_g_h_gDCW*-1 ~ factor(mu) | condition,
 print(plot_CO2_em, split = c(1,1,1,2), more = TRUE)
 print(plot_O2_up, split = c(1,2,1,2))
 ```
+
 ```{r, include = FALSE}
 # silently export svg figures
 svg("../figures/figure_CO2_O2.svg", width = 5, height = 5.5)
@@ -438,20 +467,26 @@ A Nikon microscope was used to acquire up to 5-10 images per replicate and condi
 First we load a processed data frame combining data of fructose and ammonium limitation.
 
 ```{r, message = FALSE}
-df_imaging <- read_csv("../data/input/20190728_chemostat_imaging.csv")
+df_imaging <- read_csv("../data/input/20190728_chemostat_imaging.csv", col_types = cols())
 ```
 
 Now we can plot the length of the cells and the volume calculated from the major axis length, and from the assumption that cells are rod/cylinder shaped objects. More precisely, cell volume using the volume of a cylinder as model was determined using the height h, (longest/major axis of our cell image), and its radius r (half of the minor axis/diameter of our cells). Then, volume is calculated as V = pi x r^2 x h.
 
+Result: there does not seem to be a strong correlation of growth rate and cell size, neither in length nor volume. This is somewhat unexpected as this relationship  was established in E. coli, Synechocystis, P. putida, and many other bacteria. However, the data might be incomplete and this question was not further pursued.
+
 ```{r, fig.width = 5, fig.height = 5.5}
 # see graph pars "box.rectangle" for the box, "box.umbrella" for whiskers
+custom_boxplot <- custom.colorblind()
+custom_boxplot$box.rectangle$lwd = 2
+custom_boxplot$box.umbrella$lwd = 2
+
 cell_length <- xyplot(MajorAxisLength_um ~ factor(Metadata_mu) | limitation, 
   df_imaging %>% filter(strain == "WT (PHB+)"),
-  par.settings = custom.colorblind(),
+  par.settings = custom_boxplot,
   scales = list(alternating = FALSE),
   xlab = expression("µ [h"^-1*"]"),
   ylab = expression("major axis length [µm]"),
-  lwd = 3, ylim = c(-0.5, 6.5),
+  ylim = c(-0.5, 6.5),
   as.table = TRUE, between = list(x = 0.5, y = 0.5),
   panel=function(x, y, ...) {
     panel.grid(h = -1, v = -1, col = grey(0.9))
@@ -459,17 +494,16 @@ cell_length <- xyplot(MajorAxisLength_um ~ factor(Metadata_mu) | limitation,
       notch = FALSE, do.out = FALSE, ...)
     n_cells = tapply(y, x, length)
     panel.text(labels = paste("n > ", min(n_cells, na.rm = TRUE)-1), x = 2, y = 5.5)
-    #lm(y ~ x, data.frame(x = x, y= y)) %>% summary %>% print
   }
 )
 
 cell_volume <- xyplot(cell_volume_um3 ~ factor(Metadata_mu) | limitation, 
   df_imaging %>% filter(strain == "WT (PHB+)"),
-  par.settings = custom.colorblind(),
+  par.settings = custom_boxplot,
   scales = list(alternating = FALSE),
   xlab = expression("µ [h"^-1*"]"),
   ylab = expression("cell volume [µm"^3*"]"),
-  lwd = 3, ylim = c(-3, 33),
+  ylim = c(-3, 33),
   as.table = TRUE, between = list(x = 0.5, y = 0.5),
   panel=function(x, y, ...) {
     panel.grid(h = -1, v = -1, col = grey(0.9))
@@ -477,7 +511,6 @@ cell_volume <- xyplot(cell_volume_um3 ~ factor(Metadata_mu) | limitation,
       notch = FALSE, do.out = FALSE, ...)
     n_cells = tapply(y, x, length)
     panel.text(labels = paste("n > ", min(n_cells, na.rm = TRUE)-1), x = 2, y = 28)
-    #lm(y ~ x, data.frame(x = x, y= y)) %>% summary %>% print
   }
 )
 
