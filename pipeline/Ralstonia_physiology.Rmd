@@ -325,13 +325,14 @@ dev.off()
 
 ----------
 
-For metabolic modeling, we shall also calculate the **specific productivity of PHB** as rate in g PHB per g DCW per hour. We can convert the unit to the convention used in metabolic modeling, mmol per g DCW per hour, using the molecular mass of the 3-hydroxy butyrate monomer, M = 104.1 g/mol, subtracted by one molecule water lost during the condensation into the polymer (M = 104.1 - 18 = 86.1 g/mol).
+For metabolic modeling, we shall also calculate the **specific productivity of PHB** as rate in g PHB per g DCW per hour. We can convert the unit to the convention used in metabolic modeling, mmol per g DCW per hour, using the molecular mass of the 3-hydroxy butyrate monomer, M = 104.1 g/mol, subtracted by one molecule water lost during the condensation into the polymer (M = 104.1 - 18 = 86.1 g/mol = 0.0861 g/mmol).
 
 ```{r, fig.width = 6, fig.height = 2.5}
 df_summary <- df_summary %>%
   mutate(
+    mmol_PHB_g_DCW = percent_PHB/(100*0.0861),
     P_g_PHB_g_DCW_h = g_PHB_L/g_DCW_L*dilution_rate,
-    P_mmol_PHB_g_DCW_h = P_g_PHB_g_DCW_h/86.1*1000
+    P_mmol_PHB_g_DCW_h = P_g_PHB_g_DCW_h/0.0861
   )
   
 xyplot(P_mmol_PHB_g_DCW_h ~ factor(dilution_rate) | condition, df_summary,
@@ -346,9 +347,10 @@ xyplot(P_mmol_PHB_g_DCW_h ~ factor(dilution_rate) | condition, df_summary,
   }
 )
 
-# preview table with flux to PHB during N-limitation
-df_summary %>% filter(condition == "ammonium") %>%
-  select(condition, dilution_rate, percent_PHB, P_g_PHB_g_DCW_h, P_mmol_PHB_g_DCW_h) %>%
+# preview table with mass % and flux to PHB for all conditions
+df_summary %>%
+  select(condition, dilution_rate, percent_PHB, mmol_PHB_g_DCW, 
+    P_g_PHB_g_DCW_h, P_mmol_PHB_g_DCW_h) %>%
   distinct %>% print
 ```
 
