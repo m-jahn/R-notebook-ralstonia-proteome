@@ -3,8 +3,9 @@ title: "MS-based proteomics for *R. eutropha*"
 date: "`r format(Sys.time(), '%d %B, %Y')`"
 output:
   html_notebook: 
-    theme: spacelab
+    theme: cosmo
     toc: yes
+    number_sections: true
 ---
 
 
