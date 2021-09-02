@@ -142,10 +142,9 @@ dev.off()
 
 ## DCW and PHB content of cells
 
-The next step is to add biomass concentration (DCW) in g/L. For carbon limitations, the DCW was determined in a separate series of 50 mL shake flask cultivations with substrate concentration identical to chemostat experiments (fructose: 0.5 g/L, succinate 0.5 g/L). The concentration of formate was doubled to obtain sufficient biomass for DCW measurement (2.0 g/L). For ammonium limitation, the cultivation was reproduced in chemostats with an N-limiting concentration of 0.05 g/L NH4Cl and non-limiting carbon concentration of 2.0 g/L fructose.
+The next step is to add biomass concentration (DCW) in g/L. For carbon limitations, the DCW was determined in a separate series of 50 mL shake flask cultivations with substrate concentration identical to chemostat experiments (fructose: 0.5 g/L, succinate 0.5 g/L, 4 replicates). The concentration of formate was doubled to obtain sufficient biomass for DCW measurement (2.0 g/L). For ammonium limitation, the cultivation was reproduced in chemostats with an N-limiting concentration of 0.05 g/L NH4Cl and non-limiting carbon concentration of 2.0 g/L fructose.
 
-
-```{r, fig.width = 7.5, fig.height = 6}
+```{r}
 df_DCW_PHB <- bind_rows(
   read_csv("../data/input/20210810_gDCW_carbon_lim.csv", col_types = cols()),
   read_csv("../data/input/20210810_gDCW_nitrogen_lim.csv", col_types = cols())
@@ -153,7 +152,10 @@ df_DCW_PHB <- bind_rows(
   filter(condition != "ammonium WT") %>%
   mutate(condition = condition %>% str_replace(" ", "\n") %>%
     str_replace("ammonium", "ammon."))
+```
 
+
+```{r, fig.width = 7.5, fig.height = 6}
 # plot total gDCW and total gPHB
 plot_PHB_Clim <- xyplot(g_DCW_L + g_PHB_L ~ factor(condition),
   filter(df_DCW_PHB, !str_detect(condition, "ammon")),
@@ -223,6 +225,8 @@ dev.off()
 
 ## Calculate biomass yield and maintenance
 
+The yield on formate was considerably lower than the maximum biomass yield on formate (0.093 g DCW / g S, [Grunwald et al., 2015](doi.wiley.com/10.1111/1751-7915.12149)). The optical density of the cultures was 40% lower than the OD in bioreactors. The explanation is the inhibitory effect of formate. The yield was determined with a starting concentration of 2 g/L which was shown to reduce yield significantly. Grunwald et al. established a linear model to estimate the toxic effect of residual formic (RF) acid concentration: fraction of max yield = (0.169 - 0.049 * RF)/0.169. For RF = 2.0 g/L, the obtained biomass yield is only 0.42 of theoretical maximum. In order to obtain a realistic estimation of yield in chemostats with no or low residual formate, formate yield was corrected based on above relationship for the purpose of modeling.
+
 The substrate uptake rate `qS` is calculated using the corrected substrate concentration (S_uptake = S_feed - S_residual). The rate `qS` is then dilution rate times feed concentration divided by experimentally determined biomass in the culture (excluding PHB): `qS [g/gDCW] = D [h-1] * c [g/L] / biomass [gDCW/L]`. The DCW for formate and ammonium was determined using twice the original concentration, hence the g DCW is divided by two for compatibility.
 
 ```{r}
@@ -236,7 +240,9 @@ df_summary <- df_DCW_PHB %>%
     g_DCW_L = mean(g_DCW_L_noPHB),
     g_PHB_L = mean(g_PHB_L)) %>%
   mutate(
-    g_DCW_L = case_when(condition %in% c("formate", "ammonium") ~ g_DCW_L/2, TRUE ~ g_DCW_L),
+    g_DCW_L = case_when(
+      condition == "formate" ~ g_DCW_L/(0.42*2),
+      condition == "ammonium" ~ g_DCW_L/2, TRUE ~ g_DCW_L),
     g_PHB_L = case_when(condition %in% c("formate", "ammonium") ~ g_PHB_L/2, TRUE ~ g_PHB_L),
     percent_PHB = g_PHB_L/(g_PHB_L+g_DCW_L)*100
   ) %>%
@@ -282,7 +288,8 @@ HP_plot <- function(data, xlimits = c(0, 0.3), ylimits = c(0, 1)) {
       panel.grid(h = -1, v = -1, col = grey(0.9))
       panel.xyplot(x, y, cex = 0.9, ...)
       # regression line through linear part of the data (omit µ = 0.25/h)
-      sel <- x != 0.25; x = x[sel]; y = y[sel]
+      if (data$condition[1] == "formate") sel <- x < 0.2 else sel <- x < 0.25
+      x = x[sel]; y = y[sel]
       panel.lmline(x, y, ...)
       coef <- lm(y ~ x, data.frame(x, y))$coeff
       # displaying maintenance and yield coefficients
