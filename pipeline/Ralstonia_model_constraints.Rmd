@@ -3,12 +3,13 @@ title: "Constraints for an *R. eutropha* resource allocation model"
 date: "`r format(Sys.time(), '%d %B, %Y')`"
 output:
   html_notebook: 
-    theme: spacelab
+    theme: cosmo
     toc: yes
+    number_sections: true
 ---
 
 
-## Description
+# Description
 
 This R notebook is a bioinformatics pipeline to **collect constraints for a genome scale, resource allocation model** in the chemolithoautotroph *Ralstonia eutropha* (a.k.a. *Cupriavidus necator*).
 
@@ -23,77 +24,22 @@ This notebook has the purpose to collect **constant and growth-rate dependent co
 Different types of data were used to constrain the resource allocation model. The primary data is **protein abundance** determined by mass spectrometry for *R. eutropha* using different growth rates and carbon sources. This data is used to estimate and constrain  k<sub>app</sub>, enzyme abundance, and non-enzyme protein abundance.
 
 
-## Libraries
+# Libraries
 
 ```{r, message = FALSE}
-# loading libraries
-library(lattice)
-library(latticeExtra)
-library(latticetools)
-library(tidyverse)
-library(stringi)
+suppressPackageStartupMessages({
+  library(lattice)
+  library(latticeExtra)
+  library(latticetools)
+  library(tidyverse)
+  library(stringi)
+})
 ```
 
 
-<!-- ### Function to retrieve k<sub>kat</sub> values as model constraints -->
+# k<sub>app</sub> estimation using proteomics/fluxomics
 
-<!-- The last step is to devise a function that will match annotated EC numbers from the metabolic model with k<sub>kat</sub> values from the BRENDA database. It needs to perform the following steps sequentially. For each enzyme E,  -->
-
-<!-- 1. look up possible EC numbers in data base -->
-<!-- 2. if a *Ralstonia*/*Cupriavidus* entry is available, choose it -->
-<!-- 3. else look up *Burkholderiales* and take the median of the subset -->
-<!-- 4. else look up *betaproteobacteria* and take the median of the subset -->
-<!-- 5. else if none of these categories are available, take the median of all -->
-
-<!-- The function is implemented in a versatile self-contained way so that it can be reused and adapated any time. -->
-<!-- It takes the following input parameters: -->
-
-<!-- - `kcat_data` - data frame with k<sub>kat</sub> values (imported directly from GECKO). Needs at least columns 'EC_number', 'species', 'phylogeny', and 'kcat' -->
-<!-- - `ec_number` - the EC number to look up -->
-<!-- - `species` - the name of the target species -->
-<!-- - `phylogeny` - a set of search terms to look up in order of decreasing specificity -->
-<!-- - `fun_aggregate` - the function to aggregate a selection of k<sub>kat</sub> values, like max, mean, median, and so on -->
-
-```{r, include = FALSE, eval = FALSE}
-# main retrieval function
-get_kcat <- function(
-  ec_number, kcat_data,
-  species = NULL, phylogeny = NULL,
-  fun_aggregate = median) {
-  
-  # remove NA kcats from input and filter by EC number
-  kcat_data <- kcat_data %>% ungroup %>%
-    filter(!is.na(kcat), EC_number %in% ec_number)
-  
-  # return NA if EC number is not present
-  if (nrow(kcat_data) == 0) {
-    return(NA)
-  }
-  
-  # filter by species
-  index <- FALSE
-  if (!is.null(species)) {
-    index <- grepl(species, kcat_data[["species"]])
-    if (any(index)) kcat_data <- filter(kcat_data, index)
-  }
-  
-  # filter by phylogenetic terms
-  if (!is.null(phylogeny) & !any(index)) {
-    for (key in phylogeny) {
-      index <- grepl(key, kcat_data[["phylogeny"]])
-      if (any(index)) kcat_data <- filter(kcat_data, index); break
-    }
-  }
-  
-  # aggregate values
-  kcat_data %>% pull(kcat) %>% fun_aggregate
-}
-```
-
-
-## k<sub>app</sub> estimation using proteomics/fluxomics
-
-### Background
+## Background
 
 One approach to estimate k<sub>app</sub> values is to use enzyme abundance data and estimated or measured fluxes. The k<sub>app</sub> is a parameter that links enzyme fluxes to enzyme abundance, so that flux v = k<sub>app</sub> * [E]. The k<sub>app</sub> includes also the saturation s of the enzyme, so that k<sub>app</sub> ~ k<sub>cat</sub> * s. The saturation is between 0 and 1 so that k<sub>app</sub> is lower or equal to k<sub>cat</sub>.
 
@@ -102,7 +48,7 @@ However, the idea is that the k<sub>app</sub> parameter is kept constant for dif
 - the flux through an enzyme and therefore its abundance increases in the model, **but not in measured enzyme abundance**: --> k<sub>app</sub> is higher than estimated, **enzyme not saturated**
 - the flux through an enzyme and therefore its abundance increases in the model, **and in measured enzyme abundance**: --> k<sub>app</sub> is correctly estimated, **enzyme is saturated**
 
-### Fluxomics and proteomics input
+## Fluxomics and proteomics input
 
 To estimate k<sub>app</sub> from available data, we only need to reformulate the simplified rate equation to:  k<sub>app</sub> =  v / [E]. For this purpose, we need two types of information:
 
@@ -155,7 +101,7 @@ for (cond in unique(df_flux_protein$condition)) {
 ```{r, message = FALSE, warning = FALSE, fig.width = 8, fig.height = 5.5}
 # import flux sampling results for four conditions, max tested growth rate
 df_sampling <- lapply(list.files("../data/simulation/kapp_fitting/", pattern = "^FSA", full.names = TRUE), 
-  read_csv) %>% bind_rows(.id = "condition") %>%
+  read_csv, col_types = cols()) %>% bind_rows(.id = "condition") %>%
   mutate(condition = recode(condition, `1` = "formate", `2` = "succinate", 
     `3` = "ammonium", `4` = "fructose")) %>%
   select(-2) %>% 
@@ -174,7 +120,7 @@ df_sampling <- lapply(list.files("../data/simulation/kapp_fitting/", pattern = "
   # Will help us to identify free running cycles in FSA
   left_join(
     lapply(list.files("../data/simulation/kapp_fitting/", pattern = "^FBA", full.names = TRUE),
-    read_csv) %>% bind_rows(.id = "condition") %>%
+    read_csv, col_types = cols()) %>% bind_rows(.id = "condition") %>%
     mutate(condition = recode(condition, `1` = "formate", `2` = "succinate", 
       `3` = "ammonium", `4` = "fructose")) %>%
     rename(reaction_id = X1, flux_mmol_gDCW_h_FBA = loopless)
@@ -240,13 +186,11 @@ for (cond in unique(df_sampling2$condition)) {
 ```
 
 
-### Determine k<sub>app</sub> values
+## Determine k<sub>app</sub> values
 
 The final step is to merge both datasets by computing the enzyme abundance allocated to each reaction. The estimated k<sub>app</sub> is then determined by dividing the flux through the enzyme abundance available for this reaction. This step was not performed in this R notebook but using the RBA built-in functions from the `RBApy estim` folder. Briefly, flux boundaries and protein concentration data was exported and serves as input for the script `kapp.py` ([link](https://github.com/m-jahn/Bacterial-RBA-models/tree/master/Ralstonia-eutropha-H16)). This script performs a series of FBA and RBA simulations constrained by the input fluxes and protein concentrations. It then gives an estimation of the k<sub>app</sub> for a particular condition.
 
-----------
-
-## Fraction of protein per compartment
+# Fraction of protein per compartment
 
 The RBA model takes as another input parameter (or constraint) the fraction of protein per compartment. This constraint is important as it allows the cell to have only a limited amount of protein in cytoplasm or membrane compartments, for example. This constraint can be constant or it can be growth rate dependent e.g. by a linear relationship.
 
@@ -273,12 +217,12 @@ Now we can summarize the data by taking the sum of `mol fraction` over condition
 # First retrieve the proteins that are not part of the model, which is needed
 # to  calculate non-enzymatic fraction later on
 model_genes <- c(
-  read_csv("../data/input/model_reactions.csv") %>% separate_rows(genes, sep = ", ") %>%
+  read_csv("../data/input/model_reactions.csv", col_types = cols()) %>% separate_rows(genes, sep = ", ") %>%
     filter(!duplicated(genes)) %>% pull(genes),
-  read_tsv("../data/simulation/macro_machines/ribosome.tsv")[["Gene names"]],
-  read_tsv("../data/simulation/macro_machines/chaperones.tsv")[["Gene names"]],
-  read_tsv("../data/simulation/macro_machines/transcription.tsv")[["Gene names"]],
-  read_tsv("../data/simulation/macro_machines/replication.tsv")[["Gene names"]]
+  read_tsv("../data/simulation/macro_machines/ribosome.tsv", col_types = cols())[["Gene names"]],
+  read_tsv("../data/simulation/macro_machines/chaperones.tsv", col_types = cols())[["Gene names"]],
+  read_tsv("../data/simulation/macro_machines/transcription.tsv", col_types = cols())[["Gene names"]],
+  read_tsv("../data/simulation/macro_machines/replication.tsv", col_types = cols())[["Gene names"]]
 )
 
 # extract locus_tags only
@@ -317,9 +261,8 @@ plot_prot_comp <- xyplot(prot_per_compartment ~ growthrate,
 print(plot_prot_comp)
 ```
 
-----------
 
-## Fraction of non-enzymatic protein per compartment
+# Fraction of non-enzymatic protein per compartment
 
 The previous calculation determined how the total protein pool is distributed over compartments. In this section, we will go one level deeper and determine the fraction of **non-enzymatic protein** per compartment, analogously to the previous calculation. That means every compartment's protein pool is further subdivided into two sectors, enzymatic and non-enzymatic proteins, and these sectors can have --again-- a linear dependency on growth rate. According to the RBApy manual, the proteins that are **considered non-enzymatic are all proteins not acting as enzymes or molecular machines** in the model (such as ribosomes, chaperones, DNA polymerase and so on). Non-enzymatic (NE) proteins are therefore all proteins not captured by the RBA model at all. The fraction of NE proteins per compartment is a percentage of the proteins for that compartment only (each compartment sums to 1).
 
@@ -387,13 +330,13 @@ print(plot_prot_pie)
 
 ----------
 
-## Combining estimated k<sub>app</sub> values to global consensus k<sub>app</sub>
+# Combining estimated k<sub>app</sub> values to global consensus k<sub>app</sub>
 
 The purpose of this section is to merge different k<sub>app</sub> estimations from different conditions to obtain a **consensus k<sub>app</sub> estimation**. The reasoning here is that k<sub>app</sub> is estimated from dividing the (sampled or measured) metabolic flux through an enzyme by its abundance, providing an estimate of enzyme efficiency. This efficiency depends also on the saturation of the enzyme. Estimation of k<sub>app</sub> was therefore performed for highest available growth rates/fluxes for four different conditions, in order to obtain enzyme efficiency at the highest saturation among the tested conditions.
 
 Example: Formate dehydrogenase is not used under growth on fructose (no or low efficiency) while it is used under growth on formate (high efficiency). The maximum k<sub>app</sub> should therefore be taken from formate condition.
 
-### Import k<sub>app</sub> estimation data obtained from `RBA estim`
+## Import k<sub>app</sub> estimation data obtained from `RBA estim`
 
 ```{r, message = FALSE}
 # data directory
@@ -460,7 +403,7 @@ print(plot_kapp_dist[[2]])
 
 
 
-### Manual adjustment of k<sub>app</sub> for selected reactions
+## Manual adjustment of k<sub>app</sub> for selected reactions
 
 We import a table with correction factors for k<sub>app</sub> values that have been estimated incorrectly. This set of k<sub>app</sub> values was determined by comparing the correlation between predicted and measured protein abundance. Proteins that are more than 10 fold away from measured abundance are candidates for manual correction. Other reactions that need correction are missing k<sub>app</sub> values for important transporters. These are also included in the following section.
 
