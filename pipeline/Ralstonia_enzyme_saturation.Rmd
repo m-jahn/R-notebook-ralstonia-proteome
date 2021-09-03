@@ -3,28 +3,30 @@ title: "Enzyme utilization and saturation for *R. eutropha*"
 date: "`r format(Sys.time(), '%d %B, %Y')`"
 output:
   html_notebook: 
-    theme: spacelab
+    theme: cosmo
     toc: yes
+    number_sections: true
 ---
 
 
-## Description
+# Description
 
 This R notebook is a bioinformatics pipeline to **analyze protein saturation/under-utilization with a resource allocation model** for the chemolithoautotroph *Ralstonia eutropha* (a.k.a. *Cupriavidus necator*).
 
 
-## Libraries
+# Libraries
 
 ```{r, message = FALSE}
-# loading libraries
-library(lattice)
-library(latticeExtra)
-library(latticetools)
-library(tidyverse)
-library(stringi)
+suppressPackageStartupMessages({
+  library(lattice)
+  library(latticeExtra)
+  library(latticetools)
+  library(tidyverse)
+  library(stringi)
+})
 ```
 
-## Data import
+# Data import
 
 Define the data source directories. Some of them are external in the sense of not included in the accompanying data folder of this R notebook. These are located in the accompanying github repository for the resource allocation model that was used here. The resource allocation model can be found at my fork of [Bacterial-RBA-models](https://github.com/m-jahn/Bacterial-RBA-models).
 
@@ -46,7 +48,7 @@ df_macr <- read_rba_result(list.files(simulation_dir, pattern = "macroprocesses_
 ```
 
 
-## Overview on substrate uptake, growth, and yield
+# Overview on substrate uptake, growth, and yield
 
 After running a set of simulations in RBApy that simulate increasing substrate limitation, we can plot the substrate uptake rate `q`, yield `Y` in gram biomass per gram substrate, and growth rate `µ`. Unlike genome scale models, growth becomes limited by the maximum amount of proteins that a cell can synthesize. If cells would not be protein-limited, *or* proteins would catalyze reactions infinitely fast, no such limitation would take place and growth rate would scale linearly with substrate concentration. This is the situation in FBA simulation.
 
@@ -59,8 +61,8 @@ df_macr <- df_macr %>% filter(!grepl("test_process", key)) %>%
   mutate(substrate = case_when(
     carbon_source == "for" ~ "formate",
     carbon_source == "succ" ~ "succinate",
-    carbon_source == "fru" & nitrogen_conc == 1 ~ "fructose",
-    carbon_source == "fru" & nitrogen_conc != 1 ~ "ammonium"
+    carbon_source == "fru" & nitrogen_conc == 18.7 ~ "fructose",
+    carbon_source == "fru" & nitrogen_conc != 18.7 ~ "ammonium"
   )) %>%
   
   # add uptake rate in g/gDCW*h instead of mmol
@@ -72,18 +74,18 @@ df_macr <- df_macr %>% filter(!grepl("test_process", key)) %>%
   ))
 ```
 
-First we can have a look at how growth rate levels off with increasing substrate *concentration* in mmol/L. Note: this is not equal to *substrate uptake rate*. Substrate uptake rate and growth rate should have an almost linear relationship.
+First we can have a look at how growth rate levels off with increasing substrate *concentration* in mmol/L. Note: this is not equal to *substrate uptake rate*. Substrate uptake rate and growth rate should have an almost linear relationship. We can log-transform the carbon concentration and fit a linear model to predict the substrate concentration required to obtain a certain substrate uptake rate and growth rate.
 
-```{r, fig.width = 8, fig.height = 3}
+```{r, fig.width = 8, fig.height = 6}
 # copy nitrogen to carbon concentration for ammonium limitation,
 # just for plotting purposes
-df_macr %>%
+df_macr_viz <- df_macr %>%
   mutate(carbon_conc = case_when(
     substrate == "ammonium" ~ nitrogen_conc,
     TRUE ~ carbon_conc
-  )) %>%
-  
-  xyplot(mu ~ carbon_conc | substrate, .,
+  ))
+
+plot_mu_qs_lin <- xyplot(mu ~ carbon_conc | substrate, df_macr_viz,
     par.settings = custom.colorblind(),
     between = list(x = 0.5, y = 0.5),
     layout = c(4,1), lwd = 1.5, pch = 19,
@@ -93,21 +95,35 @@ df_macr %>%
     panel = function(x, y, ...) {
       panel.grid(h = -1, v = -1, col = grey(0.9))
       panel.xyplot(x, y, cex = 0.9, ...)
+      #panel.lmlineq(x[1:4], y[1:4], fontfamily = "FreeSans", ...)
     }
   )
-```
 
-```{r, include = FALSE, message = FALSE}
-# The following table summarizes the obtained substrate concentrations and 
-# substrate uptake rates. It can be used to constrain matching concentrations
-# to the exact same uptake rates that were determined experimentally.
-df_macr %>% group_by(substrate) %>% 
-  select(carbon_conc, nitrogen_conc, qS) %>% 
-  filter(!duplicated(qS)) %>% 
-  arrange(substrate, desc(qS))
+plot_mu_qs_log <- xyplot(log10(carbon_conc) ~ qS | substrate,
+    df_macr_viz,
+    par.settings = custom.colorblind(),
+    between = list(x = 0.5, y = 0.5), #xlim = c(0, 5),
+    layout = c(4,1), lwd = 1.5, pch = 19,
+    xlab = expression('q'[S]*' mmol g DCW'^-1*'h'^-1),
+    ylab =  expression('log'[10]*' S [mM]'),
+    scales = list(alternating = FALSE),
+    panel = function(x, y, ...) {
+      panel.grid(h = -1, v = -1, col = grey(0.9))
+      panel.xyplot(x, y, cex = 0.9, ...)
+      panel.lmlineq(x[1:6], y[1:6], fontfamily = "FreeSans", ...)
+    }
+  )
 
-#Ralstonia_eutropha %>% group_by(substrate) %>% filter(!duplicated(substrate_uptake_rate)) %>%
-#  select(substrate, substrate_uptake_rate)
+print(plot_mu_qs_lin, split = c(1,1,1,2), more = TRUE)
+print(plot_mu_qs_log, split = c(1,2,1,2))
+
+df_macr_viz %>%
+  group_by(substrate) %>%
+  # fit linear model to substrate uptake rate vs concentration
+  summarize(
+    slope = lm(x ~ y, data = list(x = log10(carbon_conc), y = qS))$coeff[2],
+    offset = lm(x ~ y, data = list(x = log10(carbon_conc), y = qS))$coeff[1]
+  ) %>% mutate(model = paste0("c = 10^(", round(offset, 3), " + ", round(slope, 3), "*qS)"))
 ```
 
 Create a Herbert-Pirt plot for each condition (growth rate versus substrate uptake rate). This plot would show a change in yield by a 'kink' of the data points.
@@ -136,7 +152,7 @@ xyplot(qS_g_gDCW_h ~ mu | substrate, df_macr,
 ```
 
 
-## Resource allocation in terms of protein mass
+# Resource allocation in terms of protein mass
 
 To determine the true allocation of protein resources per compartment, but also the true cost of protein per process, we need to **convert the predicted concentration of proteins in mmol per gDCW to g per gDCW**, simply by multiplying protein concentration with the molecular weight of a protein (g/mol, converted to g/mmol). We can then also easily transform g/gDCW to mass fraction by dividing individual protein concentrations by the sum of all protein concentrations. The protein mass fraction is dimensionless. The only parameter required for this transformation is the molecular weight per protein which is available from uniprot. We can for example take the protein annotation table that is automatically downloaded during `RBApy` model generation.
 
@@ -179,11 +195,12 @@ df_macr <- df_macr %>%
   gather(key = machine, value = predicted_mass_mmol_gDCW, 
     chaperones:transcription) %>%
   
-  # round utake rates for merging
+  # round uptake rates for merging
   mutate(substrate_uptake_rate = round(substrate_uptake_rate, 3))
   
 
-df_machinery <- lapply(machinery_tables, read_tsv) %>% bind_rows(.id = "machine") %>%
+df_machinery <- lapply(machinery_tables, read_tsv, col_type = cols()) %>% 
+  bind_rows(.id = "machine") %>%
   mutate(machine = recode(machine, !!!setNames(machinery_names, 1:4))) %>%
   select(-`Entry name`, -Sequence, -Cofactor, -`EC number`, -`Organism ID`, `Organism`,
     -`Catalytic activity`, -Status) %>%
@@ -205,14 +222,14 @@ df_machinery %>%
 If the utilized protein for enzymes and machinery is summed up, it does not exceed ~0.25 g/gDCW. The reason for this is that up to 60% of the protein mass is not modeled (non enzymatic, NE proteome, 57.7% at µ = 0, see R notebook `Ralstonia-model-constraints`), and only around 68% of the total cell mass is protein. If we consider this, than total protein mass can be estimated as m = 0.25/(1-0.6) = `r round(0.25/(1-0.6), 3)` g/gDCW. This is much closer to the estimated 0.68 g protein/gDCW. The difference can be attributed to default values of amino acid concentration in `RBApy` that determine the size of the 'protein pool'. It is important to note that the sum of utilizable proteins is not a constant value but a linear function of growth rate. The total proteome pool *including non-enzymatic proteins* is, however, constant.
 
 
-## Correlation between predicted and experimentally determined proteome
+# Correlation between predicted and experimentally determined proteome
 
 To compare the predicted and experimental proteome composition, we load the required proteomics data. Proteomics data are mass spectrometry measurements with label-free quantification of peptides. Protein quantification was performed by summing up all peptide intensities per annotated protein. The proteomic measurement unit, mass fraction, can be easily transformed to g/gDCW by multiplying mass fraction with the total protein mass (0.68 g/gDCW) used in RBApy simulations. Or *vice versa* by converting RBApy protein concentration (mmol/gDCW) to mass fraction.
 
 To allow a fair comparison between measured and predicted data, it is necessary to aggregate (e.g. sum up) all protein abundances allocated to one reaction. The reason is that the model will only predict **protein abundance of the first of a range of iso-enzymes** for a particular reaction, while in reality another iso-enzyme might be more abundant (carry the majority of flux). This would lead to lower correlation between measured and predicted protein concentrations. This is not necessary for machinery proteins, they have no iso-enzymes and are used under all conditions.
 
 
-### Combine simulations and experimental data
+## Combine simulations and experimental data
 
 The proteomics data must be merged with `RBApy` simulation results using matching conditions. First, proteomics data are loaded and prepared for merging.
 
@@ -227,8 +244,6 @@ Ralstonia_eutropha <- Ralstonia_eutropha %>%
   
   # round substrate uptake rate
   mutate(substrate_uptake_rate = round(substrate_uptake_rate, 3)) %>%
-  # manually alter one rate for mapping to simulation
-  mutate(substrate_uptake_rate = substrate_uptake_rate %>% replace(., . == 63.030, 62.0)) %>%
   
   # select only required columns
   rename(growth_rate = growthrate) %>%
@@ -275,16 +290,16 @@ add_cond <- function(df) {
   df %>% mutate(substrate = case_when(
     carbon_source == "succ" ~ "succinate",
     carbon_source == "for" ~ "formate",
-    carbon_source == "fru" & nitrogen_conc == 1 ~ "fructose",
+    carbon_source == "fru" & nitrogen_conc == 18.7 ~ "fructose",
     TRUE ~ "ammonium",
   ))
 }
 
 # add substrate uptake rate
-df_substrate_uptake <- filter(df_macr, !duplicated(sim_run)) %>% 
-  select(sim_run, substrate_uptake_rate)
-df_prot <- df_prot %>% add_cond %>% left_join(df_substrate_uptake)
-df_flux <- df_flux %>% add_cond %>% left_join(df_substrate_uptake)
+df_substrate_uptake <- df_macr %>% 
+  select(simulation, substrate_uptake_rate) %>% distinct
+df_prot <- df_prot %>% add_cond %>% left_join(df_substrate_uptake, by = "simulation")
+df_flux <- df_flux %>% add_cond %>% left_join(df_substrate_uptake, by = "simulation")
 ```
 
 
@@ -322,8 +337,8 @@ df_prot_comp <- df_model_reactions %>%
   ) %>%
   
   # summarize by summing up protein abundance per reaction (NA treated as zero)
-  group_by(condition, reaction_id, reaction_name, model_group, model_group_basic, substrate, substrate_uptake_rate,
-    growth_rate, replicate) %>% 
+  group_by(condition, reaction_id, reaction_name, model_group,
+    model_group_basic, substrate, substrate_uptake_rate, growth_rate, replicate) %>% 
   summarize(
     predicted_mass_g_gDCW = sum(predicted_mass_g_gDCW, na.rm = TRUE),
     mass_g_gDCW = sum(mass_g_gDCW, na.rm = TRUE)
@@ -359,7 +374,7 @@ The total predicted protein mass is lower than the measured protein mass. Theref
 However, the largest discrepancies arise from **under-estimation of proteins**, the main cause being that the model predicts the **optimal abundance for each enzyme to carry a certain flux**. If fluxes are drastically reduced due to strong substrate limitation, the minimal required protein abundance to optimize growth will be much lower than the measured abundance. A bacterial cell on the other hand can not fully reduce its proteome but instead 'suspends' inactive enzymes.
 
 
-### Change of machinery proteins with growth rate
+## Change of machinery proteins with growth rate
 
 The simulation and measurement data was prepared and merged by condition in the previous sections. Now it can be plotted to e.g. compare protein allocation over growth rate. Interestingly, we see that model predictions are quite accurately reflecting the range of protein allocation for the four different machineries, see following paragraphs. This is a good confirmation of the model's predictive power, given that the rates of these machineries were *not fitted* from data but taken purely from literature. There are however some deviations from the predicted 'optimal' proteome:
 
@@ -389,7 +404,7 @@ df_machinery_util <- df_machinery %>%
   mutate(machine = machine %>% factor(., unique(.)[c(2,4,3,1)]))
 
 # plot mass and utilization
-plot_machinery <- #doubleYScale(use.style = FALSE, under = TRUE,
+plot_machinery <-
   
   xyplot(`mass [g/gDCW]` + `predicted mass [g/gDCW]` ~ factor(growth_rate) | 
     machine * substrate, df_machinery_util,
@@ -406,21 +421,10 @@ plot_machinery <- #doubleYScale(use.style = FALSE, under = TRUE,
     }, panel.groups = function(x, y, ...) {
       panel.lmline(x, y, ...)
     }
-  )#,
-#
-#   xyplot(utilization*100 ~ factor(growth_rate) | 
-#     machine * substrate, df_machinery_util, ylim = c(-10, 120),
-#     panel = function(x, y, ...) {
-#       panel.grid(h = -1, v = -1, col = grey(0.9))
-#       x_mean = unique(x); y_mean = tapply(y, x, mean)
-#       panel.xyarea(c(0, x_mean, 6), c(0, y_mean, tail(y_mean, 1)), 
-#         lty = 0, col = grey(0.6, alpha = 0.5), ...)
-#     }
-#   )
-# )
+  )
 ```
 
-### Under-utilization of machinery proteins
+## Under-utilization of machinery proteins
 
 Here, we determine the *underutilized machinery fraction* by taking the ratio of simulated optimal enzyme abundance and experimentally measured abundance, over all four central dogma machines.
 
@@ -446,7 +450,7 @@ plot_machinery_util <- df_machinery %>%
     xlab = expression("µ [h"^-1*"]"), ylab = "",
     key = simpleKey("% utilization", cex = 0.7),
     as.table = TRUE, between = list(x = 0.5, y = 0.5),
-    pch = 19, lwd = 2, layout = c(1, 4), ylim = c(-10, 120),
+    pch = 19, lwd = 2, layout = c(1, 4), ylim = c(-10, 110),
     panel = function(x, y, ...) {
       panel.grid(h = -1, v = -1, col = grey(0.9))
       x_mean = unique(x); y_mean = tapply(y, x, mean)
@@ -471,9 +475,9 @@ dev.off()
 ```
 
 
-## Under-utilization of enzymes
+# Under-utilization of enzymes
 
-### Global trends in utilization
+## Global trends in utilization
 
 We can subdivide enzymes by utilization and plot average mass, average variability, and average essentiality.
 Average essentiality here means that every reaction that is associated with at least one probably essential genes is probably essential, and every reactions with at least one essential gene is counted as essential (taking precedence over 'probably essential').
@@ -486,14 +490,14 @@ df_util <- df_prot_comp %>%
   
   # first calculate utilization per condition
   group_by(model_group_basic, reaction_id, reaction_name, substrate) %>%
-  summarize(
+  summarize(.groups = "drop_last",
     mass_g_gDCW = mean(mass_g_gDCW, na.rm = TRUE),
     predicted_mass_g_gDCW = mean(predicted_mass_g_gDCW, na.rm = TRUE),
     utilization = predicted_mass_g_gDCW/mass_g_gDCW
   ) %>%
   
   # determine average mass, sd and utilization per reaction
-  summarize(
+  summarize(.groups = "drop_last",
     mean_mass = mean(mass_g_gDCW, na.rm = TRUE),
     sd_mass = sd(mass_g_gDCW, na.rm = TRUE),
     cv_mass = sd_mass/mean_mass,
@@ -509,11 +513,11 @@ df_util <- df_prot_comp %>%
 
 
 # import essentiality from TnSeq/BarSeq data
-df_util <- read_csv("../data/output/essentiality_escher.csv") %>%
+df_util <- read_csv("../data/output/essentiality_escher.csv", col_types = cols()) %>%
   mutate(essentiality = essentiality %>% recode(
     `0` = "not essential", `1` = "probably essential", `2` = "essential")) %>%
   mutate(essentiality = case_when(
-    locus_tag %in% read_csv("../data/output/essentiality_fructose.csv")$locus_tag ~ "essential",
+    locus_tag %in% read_csv("../data/output/essentiality_fructose.csv", col_types = cols())$locus_tag ~ "essential",
     TRUE ~ essentiality
   )) %>%
   # merge with utilization
@@ -541,7 +545,7 @@ plot_underutil_mass <- xyplot(log10(mean_mass) ~ utilization_group,
       panel.grid(h = -1, v = -1, col = grey(0.9))
       panel.violin(x, y, lwd = 0, col = grey(0.6, 0.5), box.width = 0.7, ...)
       panel.bwplot(x, y, pch = "|", box.width = 0.3, ...)
-      panel.pvalue(x, y, cex = 0.7, fixed_pos = -0.15, verbose = TRUE, ...)
+      panel.pvalue(x, y, cex = 0.7, fixed_pos = -0.9, verbose = TRUE, ...)
       panel.text(unique(x), -7.5, labels = paste0("n=", table(x)), cex = 0.6)
     }
   )
@@ -556,7 +560,7 @@ plot_underutil_cv <- xyplot(log10(cv_mass) ~ utilization_group,
       panel.grid(h = -1, v = -1, col = grey(0.9))
       panel.violin(x, y, lwd = 0, col = grey(0.6, 0.5), box.width = 0.7, ...)
       panel.bwplot(x, y, pch = "|", box.width = 0.3, ...)
-      panel.pvalue(x, y, cex = 0.7, fixed_pos = 0.85, verbose = TRUE, ...)
+      panel.pvalue(x, y, cex = 0.7, fixed_pos = 0.65, verbose = TRUE, ...)
       panel.text(unique(x), -1.45, labels = paste0("n=", table(x)), cex = 0.6)
     }
   )
@@ -566,7 +570,7 @@ plot_underutil_es <- xyplot(n_reactions ~ utilization_group,
     par.settings = boxplot_colorblind,
     col = custom.colorblind()$superpose.polygon$col[c(5,4,2)],
     groups = factor(essentiality, c("not essential", "probably essential", "essential")),
-    xlab = "utilization", ylab = "number of reactions", ylim = c(-13, 613),
+    xlab = "utilization", ylab = "number of reactions", ylim = c(-20, 620),
     ewidth = 0.1, lwd = 2, scales = list(x = list(cex = 0.7)),
     panel = function(x, y, ...) {
       panel.grid(h = -1, v = -1, col = grey(0.9))
@@ -607,23 +611,29 @@ list_ccm_enzymes <- list(
   tca = c("ACONT1", "ACONT2", "ICDHx", "ICDHyr", "AKGDH", "SUCOAS", "SUCDi", "SUCD1", "FUM", "MDH", "MALS")
 )
 
-plot_minifigs <- df_util %>% filter(reaction_id %in% unlist(list_ccm_enzymes)) %>%
-  
-  # rescale all variables so that they can be plotted together
+plot_minifigs <- df_prot_comp %>%
+  filter(reaction_id %in% unlist(list_ccm_enzymes),
+    growth_rate == 0.25) %>%
+  group_by(reaction_id, substrate) %>%
+  # calculate utilization
+  mutate(utilization = predicted_mass_g_gDCW/mass_g_gDCW) %>%
+  summarize(utilization = mean(utilization), mean_mass = mean(mass_g_gDCW)) %>%
+  # rescale all to new range between 0 and 1
+  ungroup %>%
   mutate(across(matches("mass|utilization$"), scales::rescale)) %>%
-  pivot_longer(all_of(c("mean_mass", "cv_mass", "utilization"))) %>%
-  mutate(name = factor(name, c("mean_mass", "cv_mass", "utilization"))) %>%
-
+  pivot_longer(all_of(c("mean_mass", "utilization"))) %>%
+  mutate(name = factor(name, c("mean_mass", "utilization"))) %>%
+  
   xyplot(value ~ name | reaction_id, .,
-    par.settings = custom.colorblind(),
-    col = custom.colorblind()$superpose.polygon$col[c(5,6,7)],
-    groups = name, xlab = "", ylab = "", fill_alpha = 1,
-    ewidth = 0.25, lwd = 2, as.table = TRUE,
-    scales = list(draw = FALSE),
+    groups = substrate, par.settings = custom.colorblind(),
+    xlab = "", ylab = "", fill_alpha = 1,
+    ewidth = 0.09, lty = 1.5, as.table = TRUE,
+    scales = list(draw = FALSE), ylim = c(-0.1, 1.0),
     between = list(x = 0.5, y = 0.5),
     panel = function(x, y, ...) {
-      panel.rect(0,-0.1,3.6,1.1, col = "white", border = "transparent",)
-      panel.barplot(x, y, ...)
+      panel.rect(0.5,-0.1,2.5,1.1, col = "white", border = "transparent")
+      panel.rect(0.5,-0.1,1.5,1.0, col = grey(0.9), border = "transparent")
+      panel.barplot(x, y, beside = TRUE, ...)
     }
   )
 
@@ -637,37 +647,9 @@ dev.off()
 ```
 
 
-```{r, include = FALSE}
-# We can look for "outliers" with very high abundance and low utilization. 
-# we arrange by average abundance divided by utilization
-df_util %>% ungroup %>% filter(utilization == 0) %>%
-  arrange(desc(mean_mass)) %>% slice(1:10)
+## Central carbon metabolism, detailed utilization per enzyme
 
-# or look up utilization for specific genes
-df_util %>% ungroup %>% filter(reaction_id == "FDH")
-```
-
-### Central carbon metabolism, detailed utilization per enzyme
-
-Analogously to the above analysis, we can plot protein abundance and utilization for all enzymes of central carbon metabolism (from Figure 3 D).
-The first step can be to sort/cluster enzyme abundances by expression pattern. Or, _a priori_ based on known pathway association (probably more sensible).
-
-```{r, fig.width = 7.5, fig.height = 3.5}
-cluster_ccm_enz <- df_prot_comp %>%
-  filter(reaction_id %in% unlist(list_ccm_enzymes), !is.na(condition)) %>%
-  group_by(reaction_id) %>% mutate(mass_g_gDCW = scales::rescale(mass_g_gDCW)) %>%
-  select(reaction_id, mass_g_gDCW, condition, replicate) %>% 
-  pivot_wider(names_from = reaction_id, values_from = mass_g_gDCW) %>%
-  unite(condition, condition, replicate) %>%
-  column_to_rownames("condition") %>% 
-  as.matrix %>% t %>% dist %>%
-  hclust(method = "complete")
-
-cluster_cols <- rep(1:4, lapply(list_ccm_enzymes, length)) %>% set_names(unlist(list_ccm_enzymes))
-dendextend::color_branches(cluster_ccm_enz, 
-  col = cluster_cols[cluster_ccm_enz$labels][cluster_ccm_enz$order], ) %>% plot
-```
-
+Analogously to the above analysis, we can plot protein abundance and utilization for all enzymes of central carbon metabolism (from Figure 3 D). 
 
 ```{r, fig.width = 8, fig.height = 8}
 plot_enz_ccm <- lapply(list_ccm_enzymes, function(lst) {
@@ -766,58 +748,7 @@ print(plot_lm_ccm[[4]], position = c(0,0,1,0.32))
 grid::grid.text(c("CBB", "ED", "PYR", "TCA"), x = c(0.03, 0.03, 0.03, 0.03), y = c(0.97, 0.73, 0.5, 0.28))
 ```
 
-### Enrichment of functional pathways per group
-
-We try an over-representation analysis (ORA) using the hypergeometric test. This requires some careful design of the important sample groups. The hypergeometric test is applied on a data frame for every combination of utilization group and pathway. The classic analogy of the HG test is an urn filled with black and white balls. If we draw balls N times, how likely is it that we end up drawing more than X white balls (ORA) / less than Y white balls (URA).
-
-
-```{r, fig.width = 6.5, fig.height = 3.5, message = FALSE}
-df_ORA <- df_util %>%
-  
-  # group by model pathway annotation
-  group_by(model_group_basic, utilization_group) %>%
-  
-  # summarize number of reactions annotated with a certain function
-  filter(mean_mass != 0) %>%
-  summarize(reactions_per_group = length(reaction_id)) %>%
-  
-  # determine key numbers for hypergeometric test:
-  # total number of reactions per model group ('white balls')
-  group_by(utilization_group) %>%
-  mutate(n_reactions_total = sum(reactions_per_group)) %>%
-  
-  # total number of all reactions together ('black balls'+'white balls')
-  ungroup %>%
-  mutate(n_total = sum(reactions_per_group)) %>%
-  
-  group_by(model_group_basic) %>%
-  mutate(n_drawn = sum(reactions_per_group)) %>%
-  
-  # determine significance of over- and under-representation
-  mutate(hypgeo_pvalue_OR = phyper(
-    reactions_per_group, # white balls drawn
-    n_reactions_total, # total number white balls
-    n_total-n_reactions_total, # total number black balls
-    n_drawn, lower.tail = FALSE) # total number of balls drawn
-  )
-
-head(df_ORA)
-
-df_ORA %>% xyplot(-log10(hypgeo_pvalue_OR) ~ factor(substr(model_group_basic, 1, 15)) | utilization_group, .,
-    par.settings = custom.colorblind(),
-    ewidth = 0.25, lwd = 2, xlab = "", fill = "white", fill_alpha = 1,
-    scales = list(alternating = FALSE, x = list(rot = 25)),
-    between = list(x = 0.5, y = 0.5),
-    panel = function(x, y, ...) {
-      panel.grid(h = -1, v = -1, col = grey(0.9))
-      panel.abline(h = 2, lwd = 1.5, lty = 2, col = grey(0.6))
-      panel.barplot(x, y, ...)
-    }
-  )
-```
-
-
-### Example of underutilization of enzymes from Cbb operon 
+## Example of underutilization of enzymes from Cbb operon 
 
 Similar to machinery proteins we can also follow the simulation and actual protein abundance of all (detected) enzymes. We can see that some protein abundances nicely follow a growth-rate dependent manner, in line with predictions of higher flux. One such example are Calvin cycle enzymes for formatotrophic growth. However, for the same enzymes we see that no abundance is predicted under heterotrophic conditions because of missing flux through the pathway, but in fact the proteins are expressed in high abundance, often in a growth-rate dependent manner.
 
@@ -856,19 +787,7 @@ plot_calvin <- #doubleYScale(use.style = FALSE, under = TRUE,
     }, panel.groups = function(x, y, ...) {
       panel.lmline(x, y, ...)
     }
-  )#,
-
-#   xyplot(utilization*100 ~ factor(growth_rate) | 
-#     reaction_id * substrate, df_calvin, ylim = c(-15, 165),
-#     panel = function(x, y, ...) {
-#       panel.grid(h = -1, v = -1, col = grey(0.9))
-#       x_mean = unique(x); y_mean = tapply(y, x, mean)
-#       panel.xyarea(c(0, x_mean, 6), c(0, y_mean, tail(y_mean, 1)), 
-#         lty = 0, col = grey(0.6, alpha = 0.5), ...)
-#     }
-#   )
-# )
-
+  )
 
 print(useOuterStrips(plot_calvin))
 ```
@@ -903,7 +822,7 @@ plot_calvin_util <- df_prot_comp %>%
   
   # plot
   xyplot(percent_utilization*100 ~ factor(growth_rate) | enzyme * substrate, .,
-    par.settings = custom.colorblind(), ylim = c(-10, 120),
+    par.settings = custom.colorblind(), ylim = c(-10, 110),
     scales = list(alternating = FALSE, x = list(at = c(2,4))),
     xlab = expression("µ [h"^-1*"]"), ylab = "",
     as.table = TRUE, between = list(x = 0.5, y = 0.5),
@@ -967,7 +886,7 @@ dev.off()
 ```
 
 
-## Yield-growth rate tradeoff when Cupriavidus re-assimilates CO2?
+# Yield-growth rate tradeoff when Cupriavidus re-assimilates CO2?
 
 It was experimentally observed before that *R. eutropha* expresses Rubisco and other *cbb*-operon located genes even on growth on fructose or other heterotrophic substrates. [Bowien et al., 1990](http://doi.wiley.com/10.1016/0378-1097(90)90493-A), show that Rubisco activity can be found on growth on fructose, but not on pyruvate. [Dangel & Tabita, 2015](https://jb.asm.org/content/197/22/3488), review the regulation by CbbR type regulators among others also in *R. eutropha* and mention that citrate also leads to activation of *cbb* expression. They hypothesize that ribulose bisphosphate (RuBP) is an activating effector while other central metabolism intermediates such as phosphoenolpyruvate (PEP) are repressing effector molecules. It was speculated in Bowien et al. that regulation by cbbR might actually be a repression-derepression rather than activation, which means that the default state would be a bound cbbR repressing the *cbb* operon. However it became clear that this is not the case. [Shimizu et al., 2015](http://www.nature.com/articles/srep11617), knocked the cbbR gene out and the result was reduced expression of *cbb* genes by 100 fold. This proves that cbbR is a required activator and not a repressor of cbb, otherwise cbbR deletion would lead to constitutive activation of cbb expression.
 
@@ -984,8 +903,8 @@ df_mixflux <- read_rba_result(list.files(mixotroph_dir, pattern = "fluxes_.*.tsv
 df_mixmacr <- read_rba_result(list.files(mixotroph_dir, pattern = "macroprocesses_.*.tsv", full.names = TRUE))
 
 # rename column
-df_mixmacr <- df_mixmacr %>% rename(CO2_refixation = sim_run)
-df_mixflux <- df_mixflux %>% rename(CO2_refixation = sim_run)
+df_mixflux <- df_mixflux %>% rename(CO2_refixation = sim_run) %>% filter(CO2_refixation <= 5)
+df_mixmacr <- df_mixmacr %>% rename(CO2_refixation = sim_run) %>% filter(CO2_refixation <= 5)
 ```
 
 The next task is to compare yield, growth rate, CO<sub>2</sub> emission and other fluxes for a range of simulations where Rubisco was forced to re-fix emitted CO<sub>2</sub> from growth on fructose. Simulations were performed for increasing flux through Rubisco from 0 to 5 mmol gDCW<sup>-1</sup> h<sup>-1</sup>.
@@ -995,15 +914,15 @@ plot_mixo_mu <- lapply(c("mu", "yield"), function(keys) {
   
   if (keys == "mu") {
     ylabel <- expression("µ [h"^-1*"]")
-    ylim <- c(0.001, 0.32)
+    ylim <- c(0.001, 0.3)
   } else {
     ylabel <- expression("Y [gDCW gS"^-1*"]")
-    ylim <- c(0.001, 0.55)
+    ylim <- c(0.001, 0.399)
   }
   
   
   xyplot(value ~ factor(CO2_refixation),
-    filter(df_mixmacr, key == keys, carbon_conc == 0.655),
+    filter(df_mixmacr, key == keys, carbon_conc == 1.25),
     type = "b", lwd = 2, par.settings = custom.colorblind(), 
     xlab = expression("CO"[2]*" uptake [mmol h"^-1*" gDCW"^-1*"]"),
     ylab = ylabel, ylim = ylim,
@@ -1027,7 +946,7 @@ The model seems to predict a high-yield phenotype already. If CO<sub>2</sub> re-
 ```{r, fig.width = 3.8, fig.height = 3.8}
 plot_mixo_enz <- xyplot(abs(value) ~ as.factor(CO2_refixation) | 
     factor(key, unique(key)), layout = c(2, 2),
-  filter(df_mixflux, key %in% c("CO2t", "EDD", "CS", "O2t"), carbon_conc == 0.655),
+  filter(df_mixflux, key %in% c("CO2t", "EDD", "CS", "O2t"), carbon_conc == 1.25),
   par.settings = custom.colorblind(),
   type = "b", lwd = 2, between = list(x = 0.5, y = 0.5), as.table = TRUE,
   xlab = expression("CO"[2]*" uptake [mmol h"^-1*" gDCW"^-1*"]"),
@@ -1050,7 +969,7 @@ print(plot_mixo_enz, position = c(0.56,0,1.03,1.05))
 dev.off()
 ```
 
-### Conclusion
+## Conclusion
 
 It becomes clear that yield and growth rate decrease, and not increase, with additional CO2 fixation, because:
 
@@ -1061,5 +980,96 @@ It becomes clear that yield and growth rate decrease, and not increase, with add
 - storing some of the fixed CO2 as PHB would not increase biomass yield as additional energy requirement still persists
 - cells should not be able to make more PHB using this strategy, regardless of biomass yield. If acetyl-CoA is drained for PHB, even less energy is made available through TCA and OXPHOS.
 
+# Miniature RBA flux maps
 
+Install my small R package [fluctuator](https://github.com/m-jahn/fluctuator) to overlay fluxes on SVG metabolic maps.
+The template map is a simplified metabolic map of C. necator's central metabolism.
+
+First we plot a map of the mixotrophic simulation. Then we use the same work-flow and template to plot metabolic flux maps for growth on the three main substrates, fructose, succinate and formate (maximum tested growth rate, 0.25 h^-1).
+
+```{r}
+library(fluctuator)
+
+# import map
+SVG_map <- read_svg("../data/simulation/central_metabolism.svg")
+#get_attributes(SVG_map, node = "key_01") %>% pull(style)
+
+# prepare data: mixotrophic growth
+df_mixflux <- df_mixflux %>% filter(CO2_refixation == 3) %>%
+  # add fluxes for legend entries
+  add_row(key = c("key_01", "key_12", "key_24", "key_48"), value = c(1,2,4,8)) %>%
+  # add stroke width to simulation
+  mutate(stroke_width = 0.2 + 0.2*sqrt(abs(value))) %>%
+  inner_join(select(SVG_map@summary, label), by = c("key" = "label")) %>%
+  distinct
+
+# prepare data: carbon-limited growth
+df_carbflux <- df_flux %>%
+  filter(simulation %in% c(
+    "for_0.487_nh4_18.7_10", "fru_1.223_nh4_18.7_0", "succ_0.662_nh4_18.7_5")) %>%
+  # add fluxes for legend entries
+  add_row(key = rep(c("key_01", "key_12", "key_24", "key_48"), each = 3),
+    value = rep(c(1,2,4,8), each = 3), carbon_source = rep(c("for", "fru", "succ"), 4)) %>%
+  # add stroke width to simulation
+  mutate(stroke_width = 0.2 + 0.2*sqrt(abs(value))) %>%
+  inner_join(select(SVG_map@summary, label), by = c("key" = "label")) %>%
+  distinct
+```
+
+Plot all four conditions in a loop.
+
+```{r}
+lapply(
+  list(
+    mutate(df_mixflux, carbon_source = "mix"),
+    filter(df_carbflux, carbon_source == "fru"),
+    filter(df_carbflux, carbon_source == "for"),
+    filter(df_carbflux, carbon_source == "succ")
+  ), FUN = function(df) {
+    
+    # reload base map for every instance, as the SVG is altered
+    # even without assignment (python style, untypical in R)
+    SVG_map <- read_svg("../data/simulation/central_metabolism.svg")
+    
+    # modify map
+    SVG2 <- set_attributes(SVG_map,
+      node = df$key, attr = "style",
+      pattern = "stroke-width:[0-9]+\\.[0-9]+",
+      replacement = paste0("stroke-width:", df$stroke_width))
+    
+    # turn non-zero fluxes into darker color
+    SVG2 <- set_attributes(SVG2,
+      node = filter(df, value != 0) %>% pull(key), attr = "style",
+      pattern = "stroke:#b3b3b3",
+      replacement = "stroke:#808080")
+    
+    # rescale arrow heads
+    SVG2 <- set_attributes(SVG2, 
+      node = grep("marker", SVG2@summary$id, value = TRUE),
+      node_attr = "id",
+      attr = "transform",
+      pattern = "scale\\(0.2\\)",
+      replacement = "scale(0.15)")
+    
+    SVG2 <- set_attributes(SVG2, 
+      node = grep("marker", SVG2@summary$id, value = TRUE),
+      node_attr = "id",
+      attr = "transform",
+      pattern = "scale\\(-0.2\\)",
+      replacement = "scale(-0.15)")
+    
+    # export map as SVG again
+    #write_svg(SVG2, file = paste0("../data/simulation/central_metabolism_", df$carbon_source[1], ".svg"))
+  }
+) %>% invisible()
+
+```
+
+Metabolic flux with CO2 refixation |  Metabolic flux on fructose
+:-------------------------:|:-------------------------:
+![](../data/simulation/central_metabolism_mix.svg)  |  ![](../data/simulation/central_metabolism_fru.svg)
+
+Metabolic flux on succinate |  Metabolic flux on formic acid
+:-------------------------:|:-------------------------:
+![](../data/simulation/central_metabolism_succ.svg)  |  ![](../data/simulation/central_metabolism_for.svg)
 
