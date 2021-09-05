@@ -322,6 +322,9 @@ df_prot_comp <- df_model_reactions %>%
   
   # join with proteomics data
   left_join(Ralstonia_eutropha, by = c("genes" = "locus_tag")) %>%
+  complete(nesting(genes, reaction_id, reaction_name, model_group, model_group_basic),
+    nesting(condition, substrate, substrate_uptake_rate, growth_rate, replicate)) %>%
+  filter(!is.na(substrate)) %>%
   
   # join with simulation data
   left_join(df_prot, by = c("genes" = "key", "substrate", "substrate_uptake_rate")) %>%
@@ -343,6 +346,7 @@ df_prot_comp <- df_model_reactions %>%
     predicted_mass_g_gDCW = sum(predicted_mass_g_gDCW, na.rm = TRUE),
     mass_g_gDCW = sum(mass_g_gDCW, na.rm = TRUE)
   ) %>%
+  filter(mass_g_gDCW != 0) %>%
   
   # add predicted growth rate to experimental
   left_join(
@@ -510,6 +514,7 @@ df_util <- df_prot_comp %>%
     between(utilization, 0.33, 0.66) ~ "moderate",
     utilization > 0.66 ~ "high",
   ) %>% factor(., c("low", "moderate", "high")))
+  
 
 
 # import essentiality from TnSeq/BarSeq data
@@ -669,13 +674,13 @@ plot_enz_ccm <- lapply(list_ccm_enzymes, function(lst) {
     scales = list(alternating = FALSE, x = list(at = c(2, 4))),
     panel = function(x, y, ...) {
       panel.grid(h = -1, v = -1, col = grey(0.9))
-      panel.errbars(x, y, ewidth = ...)
+      panel.errbars(x, y, ...)
     }
   )
 })
 
-print(plot_enz_ccm[[1]], position = c(0.008,0.66,1,1), more = TRUE)
-print(plot_enz_ccm[[2]], position = c(0,0.51,1,0.74), more = TRUE)
+print(plot_enz_ccm[[1]], position = c(0.0,0.67,1,1), more = TRUE)
+print(plot_enz_ccm[[2]], position = c(0,0.51,1,0.75), more = TRUE)
 print(plot_enz_ccm[[3]], position = c(0,0.26,1,0.59), more = TRUE)
 print(plot_enz_ccm[[4]], position = c(0,0,1,0.34))
 grid::grid.text(c("CBB", "ED", "PYR", "TCA"), x = c(0.03, 0.03, 0.03, 0.03), y = c(0.97, 0.71, 0.53, 0.3))
@@ -701,13 +706,13 @@ plot_util_ccm <- lapply(list_ccm_enzymes, function(lst) {
     scales = list(alternating = FALSE, x = list(at = c(2, 4))),
     panel = function(x, y, ...) {
       panel.grid(h = -1, v = -1, col = grey(0.9))
-      panel.errbars(x, y, ewidth = ...)
+      panel.errbars(x, y, ...)
     }
   )
 })
 
-print(plot_util_ccm[[1]], position = c(0.0,0.66,1,1), more = TRUE)
-print(plot_util_ccm[[2]], position = c(0,0.51,1,0.74), more = TRUE)
+print(plot_util_ccm[[1]], position = c(0.0,0.67,1,1), more = TRUE)
+print(plot_util_ccm[[2]], position = c(0,0.51,1,0.75), more = TRUE)
 print(plot_util_ccm[[3]], position = c(0,0.26,1,0.59), more = TRUE)
 print(plot_util_ccm[[4]], position = c(0,0,1,0.34))
 grid::grid.text(c("CBB", "ED", "PYR", "TCA"), x = c(0.03, 0.03, 0.03, 0.03), y = c(0.97, 0.71, 0.53, 0.3))
@@ -732,10 +737,10 @@ plot_lm_ccm <- lapply(list_ccm_enzymes, function(lst) {
   mutate(lin_reg_slope = lin_reg_slope %>% 
     if_else(. > 2.5, 2.5, .) %>% if_else(. < -2.5, -2.5, .)) %>%
   
-  levelplot(lin_reg_slope ~ reaction_id * factor(substrate), .,
+  levelplot(lin_reg_slope ~ reaction_id * factor(substrate, unique(substrate)[c(3,2,1,4)]), .,
     par.settings = custom.colorblind(), at = seq(-2.5, 2.5, by = 0.25),
-    col.regions = colorspace::diverge_hcl(20),
-    as.table = FALSE, xlab = "",
+    col.regions = colorspace::diverge_hcl(20), ylab = "",
+    as.table = TRUE, xlab = "",
     scales = list(x = list(cex = 0.65))
   )
 })
@@ -882,6 +887,63 @@ print(plot_calvin_loci)
 ```{r, include = FALSE}
 svg("../figures/figure_calvin_loci.svg", width = 7.5, height = 5.5)
 print(plot_calvin_loci)
+dev.off()
+```
+
+# Expression and utilization of PHB synthesis enzymes
+
+The pathway for PHB synthesis consists mainly of three enzymes, each one with multiple genes annotated.
+The first is Acetyl-CoA C-acetyltransferase (phaA), making acetoacetyl-CoA, the second one is Acetoacetyl-CoA reductase (phaB), making 3-hydroxy-butyryl-CoA, and the third is the PHB-synthase condensing 3HB monomers to PHB polymer (phaC). The mass for each enzyme is the sum of the individual protein masses allocated to this reaction.
+
+```{r, fig.width = 5, fig.height = 4.5}
+plot_phb_mass <- df_prot_comp %>%
+  filter(reaction_id %in% c("PHAS", "ACACT1r", "AACOAR")) %>%
+  mutate(reaction_id = recode(reaction_id,
+    PHAS = "PHAS (phaC)", ACACT1r = "ACACT1r (phaA)", AACOAR = "AACOAR (phaB)")) %>%
+  
+  xyplot(mass_g_gDCW ~ factor(growth_rate) | 
+      factor(reaction_id, unique(reaction_id)[c(2,1,3)]), .,
+    par.settings = custom.colorblind(),
+    groups = substrate, xlab = "",
+    ylab = expression("m"[protein]*" [g gDCW"^-1*"]"),
+    layout = c(3, 1), ewidth = 0, lwd = 2, as.table = TRUE,
+    between = list(x = 0.5, y = 0.5), auto.key = list(columns = 2),
+    scales = list(alternating = FALSE, x = list(at = c(2, 4))),
+    panel = function(x, y, ...) {
+      panel.grid(h = -1, v = -1, col = grey(0.9))
+      panel.errbars(x, y, ...)
+    }
+  )
+
+plot_phb_util <- df_prot_comp %>%
+  filter(reaction_id %in% c("PHAS", "ACACT1r", "AACOAR")) %>%
+  mutate(percent_utilization = predicted_mass_g_gDCW/mass_g_gDCW*100) %>%
+  mutate(reaction_id = recode(reaction_id, 
+    PHAS = "PHAS (phaC)", ACACT1r = "ACACT1r (phaA)", AACOAR = "AACOAR (phaB)")) %>%
+  
+  xyplot(percent_utilization ~ factor(growth_rate) | 
+      factor(reaction_id, unique(reaction_id)[c(2,1,3)]), .,
+    par.settings = custom.colorblind(),
+    groups = substrate,
+    xlab = expression("µ [h"^-1*"]"),
+    ylab = "% utilization", ylim = c(-20, 320),
+    layout = c(3, 1),
+    ewidth = 0, lwd = 2, as.table = TRUE,
+    between = list(x = 0.5, y = 0.5),
+    scales = list(alternating = FALSE, x = list(at = c(2, 4))),
+    panel = function(x, y, ...) {
+      panel.grid(h = -1, v = -1, col = grey(0.9))
+      panel.errbars(x, y, ...)
+    }
+  )
+
+print(plot_phb_mass, position = c(0,0.42,1,1), more = TRUE)
+print(plot_phb_util, position = c(0.04,0,1,0.55))
+```
+```{r, include = FALSE}
+svg("../figures/figure_PHB_pathway.svg", width = 5, height = 4.5)
+print(plot_phb_mass, position = c(0,0.42,1,1), more = TRUE)
+print(plot_phb_util, position = c(0.04,0,1,0.55))
 dev.off()
 ```
 
