@@ -514,7 +514,6 @@ df_util <- df_prot_comp %>%
     between(utilization, 0.33, 0.66) ~ "moderate",
     utilization > 0.66 ~ "high",
   ) %>% factor(., c("low", "moderate", "high")))
-  
 
 
 # import essentiality from TnSeq/BarSeq data
@@ -532,7 +531,18 @@ df_util <- read_csv("../data/output/essentiality_escher.csv", col_types = cols()
   right_join(df_util)
 ```
 
+Test if mean enzyme mass and enzyme variability (CV) are normal-distributed. This is important for choosing the  statistical test for significance. We use the Shapiro-Wilks test for normality.
+
+```{r}
+df_util %>% group_by(utilization_group) %>%
+  summarize(
+    Shapiro_Wilk_pvalue_mass = shapiro.test(log10(mean_mass))$p.value,
+    Shapiro_Wilk_pvalue_CV = shapiro.test(log10(cv_mass))$p.value
+  )
+```
+
 Now plot average mass in g/gDCW, CV of mass in g/gDCW and essentiality (score) from TnSeq experiments.
+As some of the data is not normally distributed, we apply a non-parametric significance test instead - here, for comparison of two samples, the best alternative to Student's t-test is the Mann-Whitney U-test. For one sample comparisons, the non-parametric alternative to t-test would be the Wilcoxon Rank Sum test.
 
 ```{r, fig.width = 7.5, fig.height = 2.5, message = FALSE}
 boxplot_colorblind <- custom.colorblind()
@@ -550,7 +560,7 @@ plot_underutil_mass <- xyplot(log10(mean_mass) ~ utilization_group,
       panel.grid(h = -1, v = -1, col = grey(0.9))
       panel.violin(x, y, lwd = 0, col = grey(0.6, 0.5), box.width = 0.7, ...)
       panel.bwplot(x, y, pch = "|", box.width = 0.3, ...)
-      panel.pvalue(x, y, cex = 0.7, fixed_pos = -0.9, verbose = TRUE, ...)
+      panel.pvalue(x, y, cex = 0.7, fixed_pos = -0.9, verbose = TRUE, method = "wilcox.test", ...)
       panel.text(unique(x), -7.5, labels = paste0("n=", table(x)), cex = 0.6)
     }
   )
@@ -565,7 +575,7 @@ plot_underutil_cv <- xyplot(log10(cv_mass) ~ utilization_group,
       panel.grid(h = -1, v = -1, col = grey(0.9))
       panel.violin(x, y, lwd = 0, col = grey(0.6, 0.5), box.width = 0.7, ...)
       panel.bwplot(x, y, pch = "|", box.width = 0.3, ...)
-      panel.pvalue(x, y, cex = 0.7, fixed_pos = 0.65, verbose = TRUE, ...)
+      panel.pvalue(x, y, cex = 0.7, fixed_pos = 0.65, verbose = TRUE, method = "wilcox.test", ...)
       panel.text(unique(x), -1.45, labels = paste0("n=", table(x)), cex = 0.6)
     }
   )
