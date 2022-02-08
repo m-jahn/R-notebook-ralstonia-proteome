@@ -29,14 +29,17 @@ perl feba/bin/DesignRandomPool.pl -minN 1 \
 ```{r, message = FALSE}
 # optionally install repos from github
 # devtools::install_github("m-jahn/lattice-tools")
-library(lattice)
-library(latticeExtra)
-library(latticetools)
-library(data.table)
-library(MASS)
-library(stringi)
-library(zoo)
-library(tidyverse)
+
+suppressPackageStartupMessages({
+  library(lattice)
+  library(latticeExtra)
+  library(latticetools)
+  library(data.table)
+  library(MASS)
+  library(stringi)
+  library(zoo)
+  library(tidyverse)
+})
 ```
 
 
@@ -717,9 +720,9 @@ THe following analysis compares essentiality from TnSeq results with essentialit
 
 The first task is to import model predictions for gene essentiality.
 
-```{r, message = FALSE, warning = FALSE}
-df_model <- read_csv("../data/input/model_gene_essentiality.csv") %>% 
-  select(-X1) %>% rename(locus_tag = gene)
+```{r}
+df_model <- read_csv("../data/input/model_gene_essentiality.csv", col_types = cols()) %>% 
+  select(-1) %>% rename(locus_tag = gene)
 ```
 
 Then we add model essentiality to summary table, group by essentiality and count.
@@ -751,10 +754,14 @@ df_essential %>%
 Export selected tables.
 
 ```{r, message = FALSE}
+# export essentiality information for all genes
+df_essential %>%
+  select(-c(2, 19:37)) %>%
+  write_csv("../data/output/essentiality_all.csv")
+
 # export simple table with ternary encoding of essential (2), ambiguous (1), 
 # non-essential genes (0) for mapping with Escher
 df_essential %>%
-  #filter(!is.na(model_essential)) %>%
   mutate(essentiality = recode(essentiality, "non-essential" = 0, "ambiguous" = 1, "essential" = 2)) %>%
   select(locus_tag, essentiality) %>%
   write_csv("../data/output/essentiality_escher.csv")
