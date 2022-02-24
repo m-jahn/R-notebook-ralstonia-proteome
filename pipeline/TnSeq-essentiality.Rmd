@@ -766,10 +766,15 @@ df_essential %>%
   select(locus_tag, essentiality) %>%
   write_csv("../data/output/essentiality_escher.csv")
 
-# export annotated pool file with V1 of library only
+# export annotated pool file for library V1 and V2
+df_pool_annotated %>% filter(!is.na(barcode), version == "1") %>%
+  select(-tn_per_gene, -length_interval, -tn_interval,
+    -insertion_index, -insertion_probability) %>%
+  write_tsv("../data/output/annotated_pool_V1.tsv")
+
 df_pool_annotated %>% filter(!is.na(barcode), version == "2") %>%
   select(-tn_per_gene, -length_interval, -tn_interval,
     -insertion_index, -insertion_probability) %>%
-  write_tsv("../data/output/annotated_pool.tsv")
+  write_tsv("../data/output/annotated_pool_V2.tsv")
 ```
 
